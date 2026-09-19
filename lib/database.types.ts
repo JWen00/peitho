@@ -25,6 +25,7 @@ export interface Database {
           active?: boolean;
           created_at?: string;
         };
+        Relationships: [];
       };
       sessions: {
         Row: {
@@ -63,6 +64,15 @@ export interface Database {
           local_date?: string;
           created_at?: string;
         };
+        Relationships: [
+          {
+            foreignKeyName: 'sessions_topic_id_fkey';
+            columns: ['topic_id'];
+            isOneToOne: false;
+            referencedRelation: 'topics';
+            referencedColumns: ['id'];
+          },
+        ];
       };
     };
     Views: Record<string, never>;
