@@ -12,7 +12,8 @@
       "infoPlist": {
         "NSSpeechRecognitionUsageDescription": "Peitho uses speech recognition to transcribe your recordings after each session.",
         "NSMicrophoneUsageDescription": "Peitho records your voice so you can practice and review your impromptu speeches."
-      }
+      },
+      "bundleIdentifier": "com.anonymous.peitho"
     },
     "android": {
       "adaptiveIcon": {
@@ -24,7 +25,10 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.RECORD_AUDIO",
-        "android.permission.INTERNET"
+        "android.permission.INTERNET",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ]
     },
     "web": {
