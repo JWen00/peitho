@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import * as Linking from 'expo-linking';
 import { supabase } from '@/lib/supabase';
 
 export default function AuthScreen() {
@@ -20,13 +21,36 @@ export default function AuthScreen() {
 
   async function handleSubmit() {
     setLoading(true);
-    const { error } =
-      mode === 'signin'
-        ? await supabase.auth.signInWithPassword({ email, password })
-        : await supabase.auth.signUp({ email, password });
 
+    if (mode === 'signin') {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      setLoading(false);
+      if (error) Alert.alert('Error', error.message);
+      return;
+    }
+
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: Linking.createURL('/') },
+    });
     setLoading(false);
-    if (error) Alert.alert('Error', error.message);
+
+    if (error) {
+      Alert.alert('Error', error.message);
+      return;
+    }
+
+    // With email confirmation on, signUp succeeds but returns no session: the
+    // account is not usable until the emailed link is clicked. Without this the
+    // screen would sit silently and look broken.
+    if (!data.session) {
+      Alert.alert(
+        'Check your email',
+        `We sent a confirmation link to ${email}. Click it, then sign in.`
+      );
+      setMode('signin');
+    }
   }
 
   return (
