@@ -5,7 +5,9 @@ import { useEffect, useState } from 'react';
 import 'react-native-reanimated';
 import type { Session } from '@supabase/supabase-js';
 
-import { supabase } from '@/lib/supabase';
+import * as Linking from 'expo-linking';
+
+import { createSessionFromUrl, supabase } from '@/lib/supabase';
 
 export { ErrorBoundary } from 'expo-router';
 
@@ -50,6 +52,13 @@ export default function RootLayout() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // The email-confirmation link reopens the app with tokens in the URL.
+  // onAuthStateChange then fires and the guard moves us into (tabs).
+  const url = Linking.useLinkingURL();
+  useEffect(() => {
+    if (url) createSessionFromUrl(url).catch(() => {});
+  }, [url]);
 
   useEffect(() => {
     if (loaded && ready) SplashScreen.hideAsync();

@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -10,6 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import * as Linking from 'expo-linking';
 import { supabase } from '@/lib/supabase';
 
 export default function AuthScreen() {
@@ -17,16 +17,41 @@ export default function AuthScreen() {
   const [password, setPassword] = useState('');
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [loading, setLoading] = useState(false);
+  // Alert.alert is a no-op on react-native-web, so messages render inline.
+  const [notice, setNotice] = useState<{ kind: 'error' | 'info'; text: string } | null>(null);
 
   async function handleSubmit() {
     setLoading(true);
-    const { error } =
-      mode === 'signin'
-        ? await supabase.auth.signInWithPassword({ email, password })
-        : await supabase.auth.signUp({ email, password });
+    setNotice(null);
 
+    if (mode === 'signin') {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      setLoading(false);
+      if (error) setNotice({ kind: 'error', text: error.message });
+      return;
+    }
+
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: Linking.createURL('/') },
+    });
     setLoading(false);
-    if (error) Alert.alert('Error', error.message);
+
+    if (error) {
+      setNotice({ kind: 'error', text: error.message });
+      return;
+    }
+
+    // With email confirmation on, signUp succeeds but returns no session: the
+    // account is not usable until the emailed link is clicked.
+    if (!data.session) {
+      setNotice({
+        kind: 'info',
+        text: `Account created. Check ${email} for a confirmation link, then sign in.`,
+      });
+      setMode('signin');
+    }
   }
 
   return (
@@ -53,6 +78,12 @@ export default function AuthScreen() {
           value={password}
           onChangeText={setPassword}
         />
+
+        {notice && (
+          <Text style={[styles.notice, notice.kind === 'error' ? styles.noticeError : styles.noticeInfo]}>
+            {notice.text}
+          </Text>
+        )}
 
         <TouchableOpacity style={styles.button} onPress={handleSubmit} disabled={loading}>
           {loading ? (
@@ -96,4 +127,7 @@ const styles = StyleSheet.create({
   },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   toggle: { textAlign: 'center', color: '#555', fontSize: 14 },
+  notice: { fontSize: 14, lineHeight: 20, marginBottom: 4, marginTop: 4 },
+  noticeError: { color: '#b3261e' },
+  noticeInfo: { color: '#1b5e20' },
 });
