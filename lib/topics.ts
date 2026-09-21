@@ -42,3 +42,39 @@ export function getRandomTopic(excludeId?: string | null): Topic {
   const candidates = pool.length > 0 ? pool : TOPICS;
   return candidates[Math.floor(Math.random() * candidates.length)];
 }
+
+/**
+ * The device-local calendar day as `YYYY-MM-DD`.
+ *
+ * This is the same shape as the `local_date` column on `sessions`, which the
+ * plan deliberately computes on-device so the heatmap follows the user's day
+ * rather than UTC. Built from the local getters (not `toISOString`, which
+ * converts to UTC and shifts the date either side of midnight).
+ */
+export function localDateString(date: Date = new Date()): string {
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+/**
+ * The topic for a given local day.
+ *
+ * Deterministic on the date, so "today's topic" is stable across re-renders,
+ * app restarts and retries — a user who records twice gets the same prompt,
+ * which is what the retry flow assumes. Unlike `getRandomTopic`, this is not a
+ * fresh draw each call.
+ */
+export function getTopicForDate(date: Date = new Date()): Topic {
+  const key = localDateString(date);
+  let hash = 0;
+  for (let i = 0; i < key.length; i += 1) {
+    hash = (hash * 31 + key.charCodeAt(i)) | 0;
+  }
+  return TOPICS[Math.abs(hash) % TOPICS.length];
+}
+
+/** The topic for the device's current local day. */
+export function getTodaysTopic(): Topic {
+  return getTopicForDate();
+}
