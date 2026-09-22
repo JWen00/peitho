@@ -30,25 +30,37 @@ const UPDATE_INTERVAL_MS = 200;
 const END_EPSILON_SECONDS = 0.05;
 
 interface RecordingReviewProps {
-  /** Local file URI of the take under review. */
+  /** File URI of the clip — a local path, or a signed URL for a saved talk. */
   uri: string;
-  /** The recorder's own measurement, used until the player reports a duration. */
+  /** A caller's own measurement, used until the player reports a duration. */
   durationSeconds: number;
+  /**
+   * Fetch the whole clip before playing. Off for local files, which are
+   * already on disk; on for remote ones, where seeking into a stream that has
+   * not arrived yet leaves the scrubber fighting the buffer.
+   */
+  downloadFirst?: boolean;
 }
 
 /**
- * Plays back the take that was just recorded so the user can hear it before
- * deciding whether to keep it.
+ * Plays a clip back with a scrubber.
  *
- * The clip is still local at this point — `VoiceRecorder` writes to the
- * document directory and `saveSession` only uploads it on an explicit save —
- * so this is always pointed at something unsaved. Unmounting releases the
- * player, which is how the save and discard paths stop playback.
+ * Used in two places: reviewing a take before saving it, where the uri is the
+ * local file `VoiceRecorder` wrote, and replaying a saved talk, where it is a
+ * short-lived signed URL. Unmounting releases the player, which is how the
+ * save, discard and navigate-away paths all stop playback.
  */
-export default function RecordingReview({ uri, durationSeconds }: RecordingReviewProps) {
+export default function RecordingReview({
+  uri,
+  durationSeconds,
+  downloadFirst = false,
+}: RecordingReviewProps) {
   // A fresh object literal each render is fine: `useAudioPlayer` memoizes on
   // the serialized source, so the native player is not re-created.
-  const player = useAudioPlayer({ uri }, { updateInterval: UPDATE_INTERVAL_MS });
+  const player = useAudioPlayer(
+    { uri },
+    { updateInterval: UPDATE_INTERVAL_MS, downloadFirst },
+  );
   const status = useAudioPlayerStatus(player);
 
   const [trackWidth, setTrackWidth] = useState(0);

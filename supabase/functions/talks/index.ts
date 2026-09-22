@@ -4,6 +4,7 @@
  *   POST   /talks            save one recording (audio + metadata) atomically
  *   GET    /talks            paginated history, newest first
  *   GET    /talks/:talkId    one talk, with a signed playback URL
+ *   DELETE /talks/:talkId    remove a talk and its audio
  *
  * One function rather than three: Supabase gives each function its own URL and
  * its own cold start, and these three share all of their auth, CORS and
@@ -368,6 +369,41 @@ app.get('/:talkId', async (c) => {
     audioUrl,
     audioExpiresAt,
   });
+});
+
+// DELETE /talks/:talkId -----------------------------------------------------
+
+app.delete('/:talkId', async (c) => {
+  const { supabase } = c.var.supabaseContext;
+
+  const talkId = c.req.param('talkId');
+  if (!UUID_RE.test(talkId)) fail('"talkId" must be a uuid.');
+
+  // Read the path first: once the row is gone there is nothing left pointing at
+  // the object, and it would be orphaned bytes the user still pays to store.
+  const { data: talk, error: readError } = await supabase
+    .from('sessions')
+    .select('id, audio_path')
+    .eq('id', talkId)
+    .maybeSingle();
+  if (readError) throw readError;
+  if (!talk) throw new HTTPException(404, { message: 'No such talk.' });
+
+  // Row before object, deliberately. If the object delete then fails the user
+  // still sees the talk gone and only some unreferenced bytes remain, which is
+  // recoverable. The reverse order can leave a row pointing at missing audio,
+  // which shows up as a talk that will not play.
+  const { error: deleteError } = await supabase.from('sessions').delete().eq('id', talkId);
+  if (deleteError) throw deleteError;
+
+  if (talk.audio_path) {
+    const { error: removeError } = await supabase.storage.from(BUCKET).remove([talk.audio_path]);
+    // Logged, not surfaced: the talk is gone as far as the caller is concerned,
+    // and failing the request now would invite a retry that 404s.
+    if (removeError) console.error('talks: orphaned object', talk.audio_path, removeError);
+  }
+
+  return c.body(null, 204);
 });
 
 // Errors --------------------------------------------------------------------

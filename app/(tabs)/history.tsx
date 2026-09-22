@@ -1,8 +1,9 @@
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Pressable,
   RefreshControl,
   StyleSheet,
   Text,
@@ -31,9 +32,13 @@ function formatDuration(seconds: number | null): string {
   return `${Math.floor(seconds / 60)}:${`${seconds % 60}`.padStart(2, '0')}`;
 }
 
-function TalkRow({ talk }: { talk: TalkSummary }) {
+function TalkRow({ talk, onPress }: { talk: TalkSummary; onPress: () => void }) {
   return (
-    <View style={styles.row}>
+    <Pressable
+      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Open talk: ${talk.topicText}`}>
       <Text style={styles.rowTopic} numberOfLines={2}>
         {talk.topicText}
       </Text>
@@ -48,11 +53,12 @@ function TalkRow({ talk }: { talk: TalkSummary }) {
           </>
         ) : null}
       </View>
-    </View>
+    </Pressable>
   );
 }
 
 export default function HistoryScreen() {
+  const router = useRouter();
   const [talks, setTalks] = useState<TalkSummary[]>([]);
   const [load, setLoad] = useState<LoadState>({ status: 'loading' });
   const [refreshing, setRefreshing] = useState(false);
@@ -118,7 +124,9 @@ export default function HistoryScreen() {
       style={styles.list}
       data={talks}
       keyExtractor={(talk) => talk.id}
-      renderItem={({ item }) => <TalkRow talk={item} />}
+      renderItem={({ item }) => (
+        <TalkRow talk={item} onPress={() => router.push(`/session/${item.id}`)} />
+      )}
       contentContainerStyle={talks.length === 0 ? styles.emptyContainer : styles.listContainer}
       ItemSeparatorComponent={() => <View style={styles.separator} />}
       refreshControl={
@@ -164,6 +172,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   row: { paddingVertical: 16, paddingHorizontal: 20 },
+  rowPressed: { backgroundColor: '#f4f4f4' },
   rowTopic: { fontSize: 16, fontWeight: '500', lineHeight: 22, marginBottom: 6 },
   rowMeta: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   rowMetaText: { fontSize: 13, color: '#888' },

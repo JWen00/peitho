@@ -129,6 +129,34 @@ export async function listTalks(cursor?: string | null): Promise<TalkPage> {
   return data ?? { talks: [], nextCursor: null };
 }
 
+export interface TalkDetail extends TalkSummary {
+  transcript: string | null;
+  /** Signed, and short-lived — refetch the talk rather than caching this. */
+  audioUrl: string | null;
+  audioExpiresAt: string | null;
+}
+
+/** One saved talk, with its transcript and a signed URL for playback. */
+export async function getTalk(talkId: string): Promise<TalkDetail> {
+  const { data, error } = await supabase.functions.invoke<TalkDetail>(`talks/${talkId}`, {
+    method: 'GET',
+  });
+  if (error) throw new Error(await messageFor(error));
+  if (!data) throw new Error('That talk could not be loaded.');
+  return data;
+}
+
+/**
+ * Permanently removes a talk and its audio. There is no undo, so callers are
+ * expected to confirm first.
+ */
+export async function deleteTalk(talkId: string): Promise<void> {
+  const { error } = await supabase.functions.invoke(`talks/${talkId}`, {
+    method: 'DELETE',
+  });
+  if (error) throw new Error(await messageFor(error));
+}
+
 /**
  * Throws away a take the user listened to and decided against.
  *
