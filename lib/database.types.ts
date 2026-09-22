@@ -38,6 +38,7 @@ export interface Database {
           duration_seconds: number | null;
           attempt_number: number;
           local_date: string;
+          client_talk_id: string | null;
           created_at: string;
         };
         Insert: {
@@ -48,8 +49,10 @@ export interface Database {
           transcript?: string | null;
           audio_path?: string | null;
           duration_seconds?: number | null;
+          /** Set by the `sessions_set_attempt_number` trigger; ignored on insert. */
           attempt_number?: number;
           local_date: string;
+          client_talk_id?: string | null;
           created_at?: string;
         };
         Update: {
@@ -62,6 +65,7 @@ export interface Database {
           duration_seconds?: number | null;
           attempt_number?: number;
           local_date?: string;
+          client_talk_id?: string | null;
           created_at?: string;
         };
         Relationships: [
@@ -76,7 +80,12 @@ export interface Database {
       };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      talk_heatmap: {
+        Args: { from_date: string; to_date: string };
+        Returns: { talk_date: string; talk_count: number }[];
+      };
+    };
     Enums: Record<string, never>;
   };
 }

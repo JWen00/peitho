@@ -1,22 +1,8 @@
+import * as Crypto from 'expo-crypto';
 import { File } from 'expo-file-system';
 
 import { supabase } from './supabase';
 import { localDateString, type Topic } from './topics';
-
-const BUCKET = 'recordings';
-
-/** Falls back to m4a, which is what `RecordingPresets.HIGH_QUALITY` produces. */
-function extensionFor(uri: string): string {
-  const match = /\.([a-z0-9]+)(?:\?|#|$)/i.exec(uri);
-  return match ? match[1].toLowerCase() : 'm4a';
-}
-
-function contentTypeFor(extension: string): string {
-  if (extension === 'm4a' || extension === 'mp4') return 'audio/mp4';
-  if (extension === '3gp') return 'audio/3gpp';
-  if (extension === 'webm') return 'audio/webm';
-  return 'application/octet-stream';
-}
 
 export interface SaveSessionInput {
   topic: Topic;
@@ -25,94 +11,81 @@ export interface SaveSessionInput {
   durationSeconds: number;
   /** Filled in once on-device transcription lands; null until then. */
   transcript?: string | null;
+  /**
+   * Idempotency key for this take. Mint it with `newTalkId` when the recording
+   * lands and reuse it for every save attempt — see that function.
+   */
+  clientTalkId: string;
 }
 
 export interface SavedSession {
   id: string;
-  audioPath: string;
   attemptNumber: number;
   localDate: string;
 }
 
 /**
- * Persists one recording attempt: a `sessions` row plus the audio in Storage.
+ * Identifies one take for the lifetime of its save, however many attempts that
+ * takes.
  *
- * The row is inserted first so Postgres can mint the id, which the storage path
- * is keyed on (`{user_id}/{session_id}.m4a`, per the schema). That costs an
- * extra round trip but avoids shipping a uuid generator to the client. If the
- * upload then fails, the half-written row is removed rather than left behind
- * pointing at nothing.
+ * A save that times out mid-upload may well have succeeded on the server, so
+ * retrying it blind would store the same minute twice. Resending the same key
+ * lets the server recognise the retry and hand back the original talk. Mint it
+ * once, when the recording finishes — minting inside `saveSession` would give
+ * every retry a fresh key and defeat the whole mechanism.
+ */
+export function newTalkId(): string {
+  return Crypto.randomUUID();
+}
+
+/** Pulls the API's error message out of a non-2xx response from the function. */
+async function messageFor(error: unknown): Promise<string> {
+  const context = (error as { context?: Response }).context;
+  if (context && typeof context.json === 'function') {
+    try {
+      const body = await context.json();
+      if (typeof body?.message === 'string') return body.message;
+    } catch {
+      // Not JSON, or already consumed. Fall through to the generic message.
+    }
+  }
+  return error instanceof Error ? error.message : 'Something went wrong talking to the server.';
+}
+
+/**
+ * Persists one recording attempt via the `talks` API.
+ *
+ * The upload, the `sessions` row and the attempt numbering all happen server
+ * side in one request, so there is no longer a half-saved state to compensate
+ * for here: either the call succeeds and the talk exists complete, or it fails
+ * and nothing was written.
  */
 export async function saveSession({
   topic,
   uri,
   durationSeconds,
   transcript = null,
+  clientTalkId,
 }: SaveSessionInput): Promise<SavedSession> {
-  const { data: userData, error: userError } = await supabase.auth.getUser();
-  if (userError) throw userError;
-  const user = userData.user;
-  if (!user) throw new Error('You need to be signed in to save a recording.');
-
   const file = new File(uri);
   if (!file.exists) throw new Error('That recording is no longer on this device.');
 
-  // Read before inserting: a missing or unreadable clip should not leave a row.
-  const bytes = await file.bytes();
+  const form = new FormData();
+  // `File` implements `Blob`, so the clip goes into the request body directly
+  // rather than being read into memory first. If the platform's FormData drops
+  // the filename, the server falls back to m4a — which is what these are.
+  form.append('audio', file as unknown as Blob);
+  form.append('clientTalkId', clientTalkId);
+  form.append('topicText', topic.text);
+  form.append('localDate', localDateString());
+  form.append('durationSeconds', String(durationSeconds));
+  if (transcript) form.append('transcript', transcript);
 
-  const localDate = localDateString();
-
-  // Retries on the same topic on the same day are numbered in order. Fine to
-  // race-read here: it is one user on one device recording one clip at a time.
-  const { count, error: countError } = await supabase
-    .from('sessions')
-    .select('id', { count: 'exact', head: true })
-    .eq('user_id', user.id)
-    .eq('local_date', localDate)
-    .eq('topic_text', topic.text);
-  if (countError) throw countError;
-
-  const attemptNumber = (count ?? 0) + 1;
-
-  const { data: inserted, error: insertError } = await supabase
-    .from('sessions')
-    .insert({
-      user_id: user.id,
-      // `topics.id` is a uuid; the on-device pool uses slugs, so leave the FK
-      // null and lean on the `topic_text` snapshot.
-      topic_id: null,
-      topic_text: topic.text,
-      transcript,
-      duration_seconds: durationSeconds,
-      attempt_number: attemptNumber,
-      local_date: localDate,
-    })
-    .select('id')
-    .single();
-  if (insertError) throw insertError;
-
-  const extension = extensionFor(uri);
-  const audioPath = `${user.id}/${inserted.id}.${extension}`;
-
-  const { error: uploadError } = await supabase.storage
-    .from(BUCKET)
-    .upload(audioPath, bytes, { contentType: contentTypeFor(extension), upsert: true });
-
-  if (uploadError) {
-    await supabase.from('sessions').delete().eq('id', inserted.id);
-    throw uploadError;
-  }
-
-  const { error: updateError } = await supabase
-    .from('sessions')
-    .update({ audio_path: audioPath })
-    .eq('id', inserted.id);
-
-  if (updateError) {
-    await supabase.storage.from(BUCKET).remove([audioPath]);
-    await supabase.from('sessions').delete().eq('id', inserted.id);
-    throw updateError;
-  }
+  const { data, error } = await supabase.functions.invoke<SavedSession>('talks', {
+    body: form,
+  });
+  if (error) throw new Error(await messageFor(error));
+  if (!data) throw new Error('The server saved that recording but returned nothing.');
 
   // The clip is durable server-side now. Dropping the local copy keeps the
   // document directory from growing by a clip a day forever; failing to delete
@@ -123,7 +96,37 @@ export async function saveSession({
     // Ignore — worst case is a stale file we clean up later.
   }
 
-  return { id: inserted.id, audioPath, attemptNumber, localDate };
+  return data;
+}
+
+export interface TalkSummary {
+  id: string;
+  topicText: string;
+  durationSeconds: number | null;
+  attemptNumber: number;
+  localDate: string;
+  createdAt: string;
+}
+
+export interface TalkPage {
+  talks: TalkSummary[];
+  /** Pass back as `cursor` for the next page; null when this is the last. */
+  nextCursor: string | null;
+}
+
+/**
+ * One page of past talks, newest first.
+ *
+ * Deliberately no transcripts or audio URLs — the list endpoint omits both so
+ * a screenful of rows does not drag a screenful of transcripts behind it.
+ */
+export async function listTalks(cursor?: string | null): Promise<TalkPage> {
+  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+  const { data, error } = await supabase.functions.invoke<TalkPage>(`talks${query}`, {
+    method: 'GET',
+  });
+  if (error) throw new Error(await messageFor(error));
+  return data ?? { talks: [], nextCursor: null };
 }
 
 /**

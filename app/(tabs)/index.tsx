@@ -3,7 +3,7 @@ import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'rea
 
 import RecordingReview from '@/components/RecordingReview';
 import VoiceRecorder, { type VoiceRecording } from '@/components/VoiceRecorder';
-import { discardRecording, saveSession } from '@/lib/sessions';
+import { discardRecording, newTalkId, saveSession } from '@/lib/sessions';
 import { getTodaysTopic } from '@/lib/topics';
 
 type SaveState =
@@ -16,6 +16,10 @@ export default function PracticeScreen() {
   // Stable for the whole local day, so a retry gets the same prompt.
   const [topic] = useState(getTodaysTopic);
   const [recording, setRecording] = useState<VoiceRecording | null>(null);
+  // Minted with the take, not with the save, so "Try saving again" resends the
+  // same key and the server returns the original talk instead of storing the
+  // minute twice. Moves in lockstep with `recording`.
+  const [clientTalkId, setClientTalkId] = useState<string | null>(null);
   const [save, setSave] = useState<SaveState>({ status: 'idle' });
 
   // A new take supersedes whatever was under review. Without this the previous
@@ -25,31 +29,36 @@ export default function PracticeScreen() {
       if (previous) discardRecording(previous.uri);
       return null;
     });
+    setClientTalkId(null);
     setSave({ status: 'idle' });
   }, []);
 
   const handleComplete = useCallback((result: VoiceRecording) => {
     // Phase 2 continues here: transcribe the clip before offering the save.
     setRecording(result);
+    setClientTalkId(newTalkId());
     setSave({ status: 'idle' });
   }, []);
 
   const handleInterrupted = useCallback(() => {
     setRecording(null);
+    setClientTalkId(null);
     setSave({ status: 'idle' });
   }, []);
 
   const handleSave = useCallback(async () => {
-    if (!recording) return;
+    if (!recording || !clientTalkId) return;
     setSave({ status: 'saving' });
     try {
       const saved = await saveSession({
         topic,
         uri: recording.uri,
         durationSeconds: recording.durationSeconds,
+        clientTalkId,
       });
       // The local clip is gone once uploaded, so drop our reference to it too.
       setRecording(null);
+      setClientTalkId(null);
       setSave({ status: 'saved', attemptNumber: saved.attemptNumber });
     } catch (error) {
       setSave({
@@ -57,12 +66,13 @@ export default function PracticeScreen() {
         message: error instanceof Error ? error.message : 'Could not save that recording.',
       });
     }
-  }, [recording, topic]);
+  }, [recording, clientTalkId, topic]);
 
   const handleDiscard = useCallback(() => {
     if (!recording) return;
     discardRecording(recording.uri);
     setRecording(null);
+    setClientTalkId(null);
     setSave({ status: 'idle' });
   }, [recording]);
 
