@@ -12,7 +12,7 @@ import { ActivityIndicator, AppState, Platform, StyleSheet, Text, TouchableOpaci
 
 import LevelMeter from './LevelMeter';
 
-/** Hard cutoff. The plan locks the speaking window at one minute. */
+/** Default speaking window when no limit is supplied; the user can change it in Settings. */
 export const MAX_DURATION_SECONDS = 60;
 /** How much time is left when the "wrap up" haptic + visual cue fires. */
 const WARN_AT_SECONDS_LEFT = 10;
@@ -69,8 +69,8 @@ function formatClock(totalSeconds: number): string {
 }
 
 /**
- * The record step of the core loop: request the mic, capture up to one minute,
- * and hand back a local file URI.
+ * The record step of the core loop: request the mic, capture up to the
+ * configured limit, and hand back a local file URI.
  *
  * Deliberately knows nothing about topics, transcription or Supabase — the
  * screen owns those. Its only job is producing a clip.
