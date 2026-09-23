@@ -21,7 +21,10 @@ function useAuthGuard(session: Session | null, ready: boolean) {
   useEffect(() => {
     if (!ready) return;
     const inAuth = segments[0] === '(auth)';
-    if (!session && !inAuth) {
+    // The dev-only story gallery has no account behind it; let it open signed
+    // out. `__DEV__` keeps this exemption out of production entirely.
+    const inDevStories = __DEV__ && segments[0] === 'stories';
+    if (!session && !inAuth && !inDevStories) {
       router.replace('/(auth)');
     } else if (session && inAuth) {
       router.replace('/(tabs)');

@@ -133,6 +133,52 @@ export async function listTalks(cursor?: string | null): Promise<TalkPage> {
   return data ?? { talks: [], nextCursor: null };
 }
 
+export interface HeatmapDay {
+  /** Local date, YYYY-MM-DD — matches `sessions.local_date`. */
+  date: string;
+  /** Talks recorded that day; always >= 1. Missing dates are zero. */
+  count: number;
+}
+
+export interface TalkHeatmap {
+  /** Inclusive window the grid covers, echoing the request. */
+  from: string;
+  to: string;
+  /** Only days with at least one talk, ascending by date. */
+  days: HeatmapDay[];
+}
+
+/**
+ * Talk counts per day across a date window, for the calendar heatmap.
+ *
+ * Deliberately not built from `listTalks`: that returns one row per talk with
+ * fields the grid throws away and pages by cursor, whereas the grid wants one
+ * count per day across a fixed window. The `talk_heatmap` RPC does the
+ * `GROUP BY` in Postgres and is scoped to the caller by RLS, so this is a
+ * direct `rpc` call rather than an edge-function hop.
+ *
+ * The response is sparse — only days with at least one talk. Callers densify by
+ * looking each grid cell up with `heatmapIndex`; an absent date is zero.
+ */
+export async function getTalkHeatmap(from: string, to: string): Promise<TalkHeatmap> {
+  const { data, error } = await supabase.rpc('talk_heatmap', {
+    from_date: from,
+    to_date: to,
+  });
+  if (error) throw new Error(await messageFor(error));
+  return {
+    from,
+    to,
+    days: (data ?? []).map((row) => ({ date: row.talk_date, count: row.talk_count })),
+  };
+}
+
+/**
+ * A `date -> count` lookup so the grid renders each cell in O(1) instead of
+ * scanning `days`. Dates absent from the map are zero-talk days.
+ */
+export function heatmapIndex(heatmap: TalkHeatmap): Map<string, number> {
+  return new Map(heatmap.days.map((day) => [day.date, day.count]));
 export interface TalkDetail extends TalkSummary {
   transcript: string | null;
   /** Signed, and short-lived — refetch the talk rather than caching this. */
