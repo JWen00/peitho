@@ -3,15 +3,6 @@ import { StyleSheet, Text, View } from 'react-native';
 
 /** How many bars are on screen at once. */
 const BAR_COUNT = 40;
-/**
- * Visual floor in dBFS.
- *
- * Both platforms report dBFS in [-160, 0] (iOS `averagePower`, Android
- * `20 * log10(amplitude / 32767)` with silence pinned to -160), but the bottom
- * 100 dB of that range is all inaudible. Speech sits around -40 to -10, so
- * anchoring the bars at -60 spends the height where the signal actually is.
- */
-const FLOOR_DB = -60;
 /** Bars never fully collapse, so the meter reads as a live baseline, not a gap. */
 const MIN_BAR_PERCENT = 8;
 /** Below this normalized level, a sample counts as silence. */
@@ -21,21 +12,17 @@ const SILENT_SAMPLE_COUNT = 20;
 /** Don't cry silence before the mic has had a moment to deliver real samples. */
 const SILENCE_GRACE_MS = 2500;
 
-function levelFromMetering(metering: number | undefined): number {
-  // `metering` is absent until the first poll, and absent entirely if the
-  // recorder was built without `isMeteringEnabled`.
-  if (metering == null || !Number.isFinite(metering)) return 0;
-  const clamped = Math.min(0, Math.max(FLOOR_DB, metering));
-  return (clamped - FLOOR_DB) / -FLOOR_DB;
-}
-
 interface LevelMeterProps {
-  /** Latest dBFS reading from `RecorderState`. */
-  metering?: number;
   /**
-   * The recorder's elapsed time. Drives one bar per status poll — keyed on this
-   * rather than on `metering` so the meter keeps scrolling through silence,
-   * where the reading holds steady at the floor and would otherwise freeze.
+   * Latest input level, already normalized to 0-1 by whoever owns the mic.
+   * Kept scale-agnostic on purpose: the recorder knows whether it is reading
+   * dBFS or the recognizer's own -2 to 10 range, and this does not need to.
+   */
+  level: number;
+  /**
+   * The recorder's elapsed time. Drives one bar per tick — keyed on this rather
+   * than on `level` so the meter keeps scrolling through silence, where the
+   * reading holds steady at the floor and would otherwise freeze.
    */
   durationMillis: number;
   /** Whether a take is currently under way. */
@@ -54,7 +41,7 @@ interface LevelMeterProps {
  * animation, this is the thing to move onto `react-native-svg` as a single path.
  */
 export default function LevelMeter({
-  metering,
+  level,
   durationMillis,
   active,
   warning = false,
@@ -66,17 +53,17 @@ export default function LevelMeter({
     if (active) setLevels(new Array(BAR_COUNT).fill(0));
   }, [active]);
 
-  // `metering` and `durationMillis` arrive on the same status object, so this
-  // appends exactly one bar per poll.
+  // `level` and `durationMillis` are set together on the recorder's tick, so
+  // this appends exactly one bar per frame.
   useEffect(() => {
     if (!active) return;
-    setLevels((previous) => [...previous.slice(1), levelFromMetering(metering)]);
-  }, [active, durationMillis, metering]);
+    setLevels((previous) => [...previous.slice(1), Number.isFinite(level) ? level : 0]);
+  }, [active, durationMillis, level]);
 
   const heardNothing =
     active &&
     durationMillis >= SILENCE_GRACE_MS &&
-    levels.slice(-SILENT_SAMPLE_COUNT).every((level) => level <= SILENT_LEVEL);
+    levels.slice(-SILENT_SAMPLE_COUNT).every((sample) => sample <= SILENT_LEVEL);
 
   return (
     <View style={styles.wrapper}>

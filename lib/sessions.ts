@@ -9,7 +9,10 @@ export interface SaveSessionInput {
   /** Local file URI of the clip, from `VoiceRecorder`'s `onComplete`. */
   uri: string;
   durationSeconds: number;
-  /** Filled in once on-device transcription lands; null until then. */
+  /**
+   * What the recognizer heard while the take was being recorded. Null when it
+   * produced nothing usable — a take without words is still a take.
+   */
   transcript?: string | null;
   /**
    * Idempotency key for this take. Mint it with `newTalkId` when the recording
@@ -73,7 +76,8 @@ export async function saveSession({
   const form = new FormData();
   // `File` implements `Blob`, so the clip goes into the request body directly
   // rather than being read into memory first. If the platform's FormData drops
-  // the filename, the server falls back to m4a — which is what these are.
+  // the filename, the server falls back to wav — which is what the recognizer's
+  // persisted clips are.
   form.append('audio', file as unknown as Blob);
   form.append('clientTalkId', clientTalkId);
   form.append('topicText', topic.text);

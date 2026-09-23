@@ -25,7 +25,10 @@ import type { Database } from '../../../lib/database.types.ts';
 
 const BUCKET = 'recordings';
 
-/** A 1-minute AAC clip is ~500KB. This is slack, not a real expectation. */
+/**
+ * A 1-minute 16kHz 16-bit mono wav — what the recognizer persists while it
+ * transcribes — is ~2MB. This is slack, not a real expectation.
+ */
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 
 /**
@@ -183,13 +186,16 @@ function requireAudio(form: FormData): File {
   return value;
 }
 
-/** Falls back to m4a, which is what `RecordingPresets.HIGH_QUALITY` produces. */
+/** Falls back to wav, which is what the client's persisted clips are. */
 function extensionFor(file: File): string {
   const match = /\.([a-z0-9]+)$/i.exec(file.name ?? '');
-  return match ? match[1].toLowerCase() : 'm4a';
+  return match ? match[1].toLowerCase() : 'wav';
 }
 
 function contentTypeFor(extension: string): string {
+  if (extension === 'wav') return 'audio/wav';
+  // iOS writes Core Audio Format unless the recording is pinned to PCM wav.
+  if (extension === 'caf') return 'audio/x-caf';
   if (extension === 'm4a' || extension === 'mp4') return 'audio/mp4';
   if (extension === '3gp') return 'audio/3gpp';
   if (extension === 'webm') return 'audio/webm';
