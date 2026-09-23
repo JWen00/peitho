@@ -4,6 +4,7 @@ import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'rea
 import RecordingReview from '@/components/RecordingReview';
 import VoiceRecorder, { type VoiceRecording } from '@/components/VoiceRecorder';
 import { discardRecording, newTalkId, saveSession } from '@/lib/sessions';
+import { useSettings } from '@/lib/settings';
 import { getTodaysTopic } from '@/lib/topics';
 
 type SaveState =
@@ -13,6 +14,7 @@ type SaveState =
   | { status: 'error'; message: string };
 
 export default function PracticeScreen() {
+  const { talkingMinutes } = useSettings();
   // Stable for the whole local day, so a retry gets the same prompt.
   const [topic] = useState(getTodaysTopic);
   const [recording, setRecording] = useState<VoiceRecording | null>(null);
@@ -89,6 +91,7 @@ export default function PracticeScreen() {
         onStart={handleStart}
         onComplete={handleComplete}
         onInterrupted={handleInterrupted}
+        maxDurationSeconds={talkingMinutes * 60}
       />
 
       {recording ? (

@@ -8,6 +8,7 @@ import type { Session } from '@supabase/supabase-js';
 import * as Linking from 'expo-linking';
 
 import { createSessionFromUrl, supabase } from '@/lib/supabase';
+import { SettingsProvider } from '@/lib/settings';
 
 export { ErrorBoundary } from 'expo-router';
 
@@ -69,10 +70,12 @@ export default function RootLayout() {
   if (!loaded || !ready) return null;
 
   return (
-    <Stack>
-      <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="session/[id]" options={{ title: 'Session', presentation: 'card' }} />
-    </Stack>
+    <SettingsProvider>
+      <Stack>
+        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="session/[id]" options={{ title: 'Session', presentation: 'card' }} />
+      </Stack>
+    </SettingsProvider>
   );
 }
