@@ -36,7 +36,8 @@ export default function PracticeScreen() {
   }, []);
 
   const handleComplete = useCallback((result: VoiceRecording) => {
-    // Phase 2 continues here: transcribe the clip before offering the save.
+    // Already carries its transcript: the recognizer produced it while the take
+    // was being recorded, so there is nothing left to wait for here.
     setRecording(result);
     setClientTalkId(newTalkId());
     setSave({ status: 'idle' });
@@ -56,6 +57,7 @@ export default function PracticeScreen() {
         topic,
         uri: recording.uri,
         durationSeconds: recording.durationSeconds,
+        transcript: recording.transcript,
         clientTalkId,
       });
       // The local clip is gone once uploaded, so drop our reference to it too.

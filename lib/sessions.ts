@@ -9,7 +9,10 @@ export interface SaveSessionInput {
   /** Local file URI of the clip, from `VoiceRecorder`'s `onComplete`. */
   uri: string;
   durationSeconds: number;
-  /** Filled in once on-device transcription lands; null until then. */
+  /**
+   * What the recognizer heard while the take was being recorded. Null when it
+   * produced nothing usable — a take without words is still a take.
+   */
   transcript?: string | null;
   /**
    * Idempotency key for this take. Mint it with `newTalkId` when the recording
@@ -73,7 +76,8 @@ export async function saveSession({
   const form = new FormData();
   // `File` implements `Blob`, so the clip goes into the request body directly
   // rather than being read into memory first. If the platform's FormData drops
-  // the filename, the server falls back to m4a — which is what these are.
+  // the filename, the server falls back to wav — which is what the recognizer's
+  // persisted clips are.
   form.append('audio', file as unknown as Blob);
   form.append('clientTalkId', clientTalkId);
   form.append('topicText', topic.text);
@@ -127,6 +131,34 @@ export async function listTalks(cursor?: string | null): Promise<TalkPage> {
   });
   if (error) throw new Error(await messageFor(error));
   return data ?? { talks: [], nextCursor: null };
+}
+
+export interface TalkDetail extends TalkSummary {
+  transcript: string | null;
+  /** Signed, and short-lived — refetch the talk rather than caching this. */
+  audioUrl: string | null;
+  audioExpiresAt: string | null;
+}
+
+/** One saved talk, with its transcript and a signed URL for playback. */
+export async function getTalk(talkId: string): Promise<TalkDetail> {
+  const { data, error } = await supabase.functions.invoke<TalkDetail>(`talks/${talkId}`, {
+    method: 'GET',
+  });
+  if (error) throw new Error(await messageFor(error));
+  if (!data) throw new Error('That talk could not be loaded.');
+  return data;
+}
+
+/**
+ * Permanently removes a talk and its audio. There is no undo, so callers are
+ * expected to confirm first.
+ */
+export async function deleteTalk(talkId: string): Promise<void> {
+  const { error } = await supabase.functions.invoke(`talks/${talkId}`, {
+    method: 'DELETE',
+  });
+  if (error) throw new Error(await messageFor(error));
 }
 
 /**

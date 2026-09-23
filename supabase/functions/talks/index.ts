@@ -4,6 +4,7 @@
  *   POST   /talks            save one recording (audio + metadata) atomically
  *   GET    /talks            paginated history, newest first
  *   GET    /talks/:talkId    one talk, with a signed playback URL
+ *   DELETE /talks/:talkId    remove a talk and its audio
  *
  * One function rather than three: Supabase gives each function its own URL and
  * its own cold start, and these three share all of their auth, CORS and
@@ -24,7 +25,10 @@ import type { Database } from '../../../lib/database.types.ts';
 
 const BUCKET = 'recordings';
 
-/** A 1-minute AAC clip is ~500KB. This is slack, not a real expectation. */
+/**
+ * A 1-minute 16kHz 16-bit mono wav — what the recognizer persists while it
+ * transcribes — is ~2MB. This is slack, not a real expectation.
+ */
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 
 /**
@@ -182,13 +186,16 @@ function requireAudio(form: FormData): File {
   return value;
 }
 
-/** Falls back to m4a, which is what `RecordingPresets.HIGH_QUALITY` produces. */
+/** Falls back to wav, which is what the client's persisted clips are. */
 function extensionFor(file: File): string {
   const match = /\.([a-z0-9]+)$/i.exec(file.name ?? '');
-  return match ? match[1].toLowerCase() : 'm4a';
+  return match ? match[1].toLowerCase() : 'wav';
 }
 
 function contentTypeFor(extension: string): string {
+  if (extension === 'wav') return 'audio/wav';
+  // iOS writes Core Audio Format unless the recording is pinned to PCM wav.
+  if (extension === 'caf') return 'audio/x-caf';
   if (extension === 'm4a' || extension === 'mp4') return 'audio/mp4';
   if (extension === '3gp') return 'audio/3gpp';
   if (extension === 'webm') return 'audio/webm';
@@ -368,6 +375,41 @@ app.get('/:talkId', async (c) => {
     audioUrl,
     audioExpiresAt,
   });
+});
+
+// DELETE /talks/:talkId -----------------------------------------------------
+
+app.delete('/:talkId', async (c) => {
+  const { supabase } = c.var.supabaseContext;
+
+  const talkId = c.req.param('talkId');
+  if (!UUID_RE.test(talkId)) fail('"talkId" must be a uuid.');
+
+  // Read the path first: once the row is gone there is nothing left pointing at
+  // the object, and it would be orphaned bytes the user still pays to store.
+  const { data: talk, error: readError } = await supabase
+    .from('sessions')
+    .select('id, audio_path')
+    .eq('id', talkId)
+    .maybeSingle();
+  if (readError) throw readError;
+  if (!talk) throw new HTTPException(404, { message: 'No such talk.' });
+
+  // Row before object, deliberately. If the object delete then fails the user
+  // still sees the talk gone and only some unreferenced bytes remain, which is
+  // recoverable. The reverse order can leave a row pointing at missing audio,
+  // which shows up as a talk that will not play.
+  const { error: deleteError } = await supabase.from('sessions').delete().eq('id', talkId);
+  if (deleteError) throw deleteError;
+
+  if (talk.audio_path) {
+    const { error: removeError } = await supabase.storage.from(BUCKET).remove([talk.audio_path]);
+    // Logged, not surfaced: the talk is gone as far as the caller is concerned,
+    // and failing the request now would invite a retry that 404s.
+    if (removeError) console.error('talks: orphaned object', talk.audio_path, removeError);
+  }
+
+  return c.body(null, 204);
 });
 
 // Errors --------------------------------------------------------------------
