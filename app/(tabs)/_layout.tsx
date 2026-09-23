@@ -37,12 +37,12 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="profile"
+        name="settings"
         options={{
-          title: 'Profile',
+          title: 'Settings',
           tabBarIcon: ({ color }) => (
             <SymbolView
-              name={{ ios: 'person.fill', android: 'person', web: 'person' }}
+              name={{ ios: 'gearshape.fill', android: 'settings', web: 'settings' }}
               tintColor={color}
               size={26}
             />
