@@ -13,9 +13,7 @@ import {
 import { listTalks, type TalkSummary } from '@/lib/sessions';
 
 type LoadState =
-  | { status: 'loading' }
-  | { status: 'ready' }
-  | { status: 'error'; message: string };
+  { status: 'loading' } | { status: 'ready' } | { status: 'error'; message: string };
 
 /** "2026-09-21" → "Mon 21 Sep". Parsed as local, not UTC — see `localDate`. */
 function formatDay(localDate: string): string {
@@ -38,7 +36,8 @@ function TalkRow({ talk, onPress }: { talk: TalkSummary; onPress: () => void }) 
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`Open talk: ${talk.topicText}`}>
+      accessibilityLabel={`Open talk: ${talk.topicText}`}
+    >
       <Text style={styles.rowTopic} numberOfLines={2}>
         {talk.topicText}
       </Text>
@@ -127,7 +126,9 @@ export default function HistoryScreen() {
       renderItem={({ item }) => (
         <TalkRow talk={item} onPress={() => router.push(`/session/${item.id}`)} />
       )}
-      contentContainerStyle={talks.length === 0 ? styles.emptyContainer : styles.listContainer}
+      contentContainerStyle={
+        talks.length === 0 ? styles.emptyContainer : styles.listContainer
+      }
       ItemSeparatorComponent={() => <View style={styles.separator} />}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={() => loadFirstPage(true)} />

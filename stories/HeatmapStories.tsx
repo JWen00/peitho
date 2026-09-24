@@ -90,7 +90,9 @@ export default function HeatmapStories() {
                 onPress={() => setStory(name)}
                 style={[styles.pill, active && styles.pillActive]}
               >
-                <Text style={[styles.pillText, active && styles.pillTextActive]}>{name}</Text>
+                <Text style={[styles.pillText, active && styles.pillTextActive]}>
+                  {name}
+                </Text>
               </Pressable>
             );
           })}

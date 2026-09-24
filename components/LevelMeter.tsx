@@ -80,7 +80,9 @@ export default function LevelMeter({
         ))}
       </View>
       {heardNothing ? (
-        <Text style={styles.silence}>No sound reaching the mic — is something covering it?</Text>
+        <Text style={styles.silence}>
+          No sound reaching the mic — is something covering it?
+        </Text>
       ) : null}
     </View>
   );

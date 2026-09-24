@@ -52,7 +52,9 @@ async function messageFor(error: unknown): Promise<string> {
       // Not JSON, or already consumed. Fall through to the generic message.
     }
   }
-  return error instanceof Error ? error.message : 'Something went wrong talking to the server.';
+  return error instanceof Error
+    ? error.message
+    : 'Something went wrong talking to the server.';
 }
 
 /**
