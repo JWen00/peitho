@@ -1,0 +1,12 @@
+node_modules/
+ios/
+android/
+.expo/
+dist/
+web-build/
+package-lock.json
+supabase/functions/
+
+# Prose docs are hand-wrapped; generated types are regenerated, not edited.
+*.md
+lib/database.types.ts
