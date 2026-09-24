@@ -63,7 +63,8 @@ export default function TalkDetailScreen() {
         if (cancelled) return;
         setLoad({
           status: 'error',
-          message: error instanceof Error ? error.message : 'That talk could not be loaded.',
+          message:
+            error instanceof Error ? error.message : 'That talk could not be loaded.',
         });
       });
     return () => {
@@ -146,7 +147,8 @@ export default function TalkDetailScreen() {
             <Pressable
               style={({ pressed }) => [styles.deleteButton, pressed && styles.pressed]}
               onPress={() => setRemove({ status: 'confirming' })}
-              accessibilityRole="button">
+              accessibilityRole="button"
+            >
               <Text style={styles.deleteButtonText}>Delete talk</Text>
             </Pressable>
           </>
@@ -154,7 +156,8 @@ export default function TalkDetailScreen() {
           <View style={styles.confirmBox}>
             <Text style={styles.confirmTitle}>Delete this talk?</Text>
             <Text style={styles.confirmBody}>
-              The recording and its transcript are removed permanently. This cannot be undone.
+              The recording and its transcript are removed permanently. This cannot be
+              undone.
             </Text>
             <View style={styles.confirmActions}>
               <Pressable
@@ -165,7 +168,8 @@ export default function TalkDetailScreen() {
                 ]}
                 onPress={() => void confirmDelete()}
                 disabled={busy}
-                accessibilityRole="button">
+                accessibilityRole="button"
+              >
                 {busy ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
@@ -180,7 +184,8 @@ export default function TalkDetailScreen() {
                 ]}
                 onPress={() => setRemove({ status: 'idle' })}
                 disabled={busy}
-                accessibilityRole="button">
+                accessibilityRole="button"
+              >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </Pressable>
             </View>
@@ -218,7 +223,12 @@ const styles = StyleSheet.create({
   },
   transcript: { fontSize: 16, lineHeight: 24, color: '#222' },
   transcriptEmpty: { fontSize: 15, color: '#888', fontStyle: 'italic' },
-  dangerZone: { marginTop: 48, borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 24 },
+  dangerZone: {
+    marginTop: 48,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+    paddingTop: 24,
+  },
   deleteButton: {
     borderRadius: 14,
     borderWidth: 1,

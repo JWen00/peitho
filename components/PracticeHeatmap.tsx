@@ -102,7 +102,10 @@ export function HeatmapView({ state }: { state: HeatmapState }) {
                 style={[
                   styles.cell,
                   date
-                    ? { backgroundColor: LEVEL_COLORS[levelFor(state.counts.get(date) ?? 0)] }
+                    ? {
+                        backgroundColor:
+                          LEVEL_COLORS[levelFor(state.counts.get(date) ?? 0)],
+                      }
                     : styles.cellEmpty,
                 ]}
               />
@@ -167,7 +170,11 @@ export function PracticeHeatmap({ days = 365 }: PracticeHeatmapProps) {
 }
 
 const styles = StyleSheet.create({
-  placeholder: { height: 7 * CELL + 6 * GAP, justifyContent: 'center', alignItems: 'center' },
+  placeholder: {
+    height: 7 * CELL + 6 * GAP,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   errorText: { fontSize: 13, color: '#c0392b', textAlign: 'center' },
   grid: { flexDirection: 'row', gap: GAP },
   week: { gap: GAP },

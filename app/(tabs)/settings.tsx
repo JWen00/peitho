@@ -1,14 +1,10 @@
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { supabase } from '@/lib/supabase';
-import {
-  MAX_TALKING_MINUTES,
-  MIN_TALKING_MINUTES,
-  useSettings,
-} from '@/lib/settings';
+import { MAX_TALKING_MINUTES, MIN_TALKING_MINUTES, useSettings } from '@/lib/settings';
 
 const TALKING_OPTIONS = Array.from(
   { length: MAX_TALKING_MINUTES - MIN_TALKING_MINUTES + 1 },
-  (_, i) => MIN_TALKING_MINUTES + i
+  (_, i) => MIN_TALKING_MINUTES + i,
 );
 
 export default function SettingsScreen() {
@@ -33,7 +29,8 @@ export default function SettingsScreen() {
                 style={[styles.option, selected && styles.optionSelected]}
                 onPress={() => setTalkingMinutes(minutes)}
                 accessibilityRole="button"
-                accessibilityState={{ selected }}>
+                accessibilityState={{ selected }}
+              >
                 <Text style={[styles.optionText, selected && styles.optionTextSelected]}>
                   {minutes} min
                 </Text>

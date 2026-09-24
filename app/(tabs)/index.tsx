@@ -1,5 +1,11 @@
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 import RecordingReview from '@/components/RecordingReview';
 import VoiceRecorder, { type VoiceRecording } from '@/components/VoiceRecorder';
@@ -67,7 +73,8 @@ export default function PracticeScreen() {
     } catch (error) {
       setSave({
         status: 'error',
-        message: error instanceof Error ? error.message : 'Could not save that recording.',
+        message:
+          error instanceof Error ? error.message : 'Could not save that recording.',
       });
     }
   }, [recording, clientTalkId, topic]);
@@ -84,7 +91,7 @@ export default function PracticeScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>Today's topic</Text>
+      <Text style={styles.label}>Today&apos;s topic</Text>
       <Text style={styles.topic}>{topic.text}</Text>
 
       <VoiceRecorder
@@ -96,15 +103,21 @@ export default function PracticeScreen() {
 
       {recording ? (
         <View style={styles.review}>
-          <RecordingReview uri={recording.uri} durationSeconds={recording.durationSeconds} />
+          <RecordingReview
+            uri={recording.uri}
+            durationSeconds={recording.durationSeconds}
+          />
 
-          {save.status === 'error' ? <Text style={styles.error}>{save.message}</Text> : null}
+          {save.status === 'error' ? (
+            <Text style={styles.error}>{save.message}</Text>
+          ) : null}
 
           <View style={styles.actions}>
             <TouchableOpacity
               style={[styles.saveButton, isSaving && styles.buttonBusy]}
               onPress={handleSave}
-              disabled={isSaving}>
+              disabled={isSaving}
+            >
               {isSaving ? (
                 <ActivityIndicator color="#fff" />
               ) : (
@@ -116,7 +129,8 @@ export default function PracticeScreen() {
             <TouchableOpacity
               style={[styles.discardButton, isSaving && styles.buttonBusy]}
               onPress={handleDiscard}
-              disabled={isSaving}>
+              disabled={isSaving}
+            >
               <Text style={styles.discardButtonText}>Discard</Text>
             </TouchableOpacity>
           </View>
@@ -133,9 +147,27 @@ export default function PracticeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, backgroundColor: '#fff' },
-  label: { fontSize: 13, color: '#888', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 16 },
-  topic: { fontSize: 24, fontWeight: '600', textAlign: 'center', marginBottom: 48, lineHeight: 32 },
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+    backgroundColor: '#fff',
+  },
+  label: {
+    fontSize: 13,
+    color: '#888',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: 16,
+  },
+  topic: {
+    fontSize: 24,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 48,
+    lineHeight: 32,
+  },
   review: { alignSelf: 'stretch', marginTop: 28, gap: 18 },
   actions: { flexDirection: 'row', justifyContent: 'center', gap: 12 },
   error: { fontSize: 15, color: '#c0392b', textAlign: 'center' },

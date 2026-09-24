@@ -18,7 +18,9 @@ export default function AuthScreen() {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [loading, setLoading] = useState(false);
   // Alert.alert is a no-op on react-native-web, so messages render inline.
-  const [notice, setNotice] = useState<{ kind: 'error' | 'info'; text: string } | null>(null);
+  const [notice, setNotice] = useState<{ kind: 'error' | 'info'; text: string } | null>(
+    null,
+  );
 
   async function handleSubmit() {
     setLoading(true);
@@ -80,7 +82,12 @@ export default function AuthScreen() {
         />
 
         {notice && (
-          <Text style={[styles.notice, notice.kind === 'error' ? styles.noticeError : styles.noticeInfo]}>
+          <Text
+            style={[
+              styles.notice,
+              notice.kind === 'error' ? styles.noticeError : styles.noticeInfo,
+            ]}
+          >
             {notice.text}
           </Text>
         )}
@@ -89,13 +96,19 @@ export default function AuthScreen() {
           {loading ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.buttonText}>{mode === 'signin' ? 'Sign in' : 'Sign up'}</Text>
+            <Text style={styles.buttonText}>
+              {mode === 'signin' ? 'Sign in' : 'Sign up'}
+            </Text>
           )}
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => setMode(mode === 'signin' ? 'signup' : 'signin')}>
+        <TouchableOpacity
+          onPress={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
+        >
           <Text style={styles.toggle}>
-            {mode === 'signin' ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
+            {mode === 'signin'
+              ? "Don't have an account? Sign up"
+              : 'Already have an account? Sign in'}
           </Text>
         </TouchableOpacity>
       </View>

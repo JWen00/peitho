@@ -52,7 +52,9 @@ async function messageFor(error: unknown): Promise<string> {
       // Not JSON, or already consumed. Fall through to the generic message.
     }
   }
-  return error instanceof Error ? error.message : 'Something went wrong talking to the server.';
+  return error instanceof Error
+    ? error.message
+    : 'Something went wrong talking to the server.';
 }
 
 /**
@@ -179,6 +181,8 @@ export async function getTalkHeatmap(from: string, to: string): Promise<TalkHeat
  */
 export function heatmapIndex(heatmap: TalkHeatmap): Map<string, number> {
   return new Map(heatmap.days.map((day) => [day.date, day.count]));
+}
+
 export interface TalkDetail extends TalkSummary {
   transcript: string | null;
   /** Signed, and short-lived — refetch the talk rather than caching this. */

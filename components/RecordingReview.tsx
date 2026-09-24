@@ -99,7 +99,7 @@ export default function RecordingReview({
       const ratio = Math.min(1, Math.max(0, event.nativeEvent.locationX / trackWidth));
       void player.seekTo(ratio * duration);
     },
-    [duration, player, trackWidth]
+    [duration, player, trackWidth],
   );
 
   const ready = status.isLoaded;
@@ -111,7 +111,8 @@ export default function RecordingReview({
         onPress={() => void toggle()}
         disabled={!ready}
         accessibilityRole="button"
-        accessibilityLabel={status.playing ? 'Pause playback' : 'Play your recording'}>
+        accessibilityLabel={status.playing ? 'Pause playback' : 'Play your recording'}
+      >
         <SymbolView
           name={{
             ios: status.playing ? 'pause.fill' : 'play.fill',
@@ -128,7 +129,8 @@ export default function RecordingReview({
           style={styles.track}
           hitSlop={{ top: 14, bottom: 14 }}
           onLayout={handleTrackLayout}
-          onPress={handleTrackPress}>
+          onPress={handleTrackPress}
+        >
           <View style={[styles.trackFill, { width: `${progress * 100}%` }]} />
         </Pressable>
         <View style={styles.times}>
@@ -141,7 +143,12 @@ export default function RecordingReview({
 }
 
 const styles = StyleSheet.create({
-  container: { flexDirection: 'row', alignItems: 'center', gap: 14, alignSelf: 'stretch' },
+  container: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    alignSelf: 'stretch',
+  },
   playButton: {
     width: 48,
     height: 48,

@@ -1,6 +1,14 @@
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
-import { createContext, createElement, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  createElement,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from 'react';
 
 export const MIN_TALKING_MINUTES = 1;
 export const MAX_TALKING_MINUTES = 5;
@@ -55,7 +63,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     void writeValue(TALKING_MINUTES_KEY, String(next)).catch(() => {});
   }, []);
 
-  return createElement(SettingsContext.Provider, { value: { talkingMinutes, setTalkingMinutes } }, children);
+  return createElement(
+    SettingsContext.Provider,
+    { value: { talkingMinutes, setTalkingMinutes } },
+    children,
+  );
 }
 
 export function useSettings(): SettingsValue {

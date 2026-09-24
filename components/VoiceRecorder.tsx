@@ -7,7 +7,15 @@ import {
   type ExpoSpeechRecognitionErrorCode,
 } from 'expo-speech-recognition';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  AppState,
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 import LevelMeter from './LevelMeter';
 
@@ -190,7 +198,7 @@ export default function VoiceRecorder({
       // just watched tick down.
       const durationSeconds = Math.min(
         maxDurationSeconds,
-        Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000))
+        Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000)),
       );
 
       // `stop()` asks for a last result and flushes the file; `abort()` drops
@@ -220,7 +228,9 @@ export default function VoiceRecorder({
       // Returning the session to playback mode matters on iOS: the recognizer
       // leaves the session in a recording category, which routes later playback
       // to the earpiece.
-      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => {});
+      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(
+        () => {},
+      );
 
       const uri = audioUriRef.current;
       // `continuous` delivers a *sequence* of final results across one take,
@@ -253,7 +263,7 @@ export default function VoiceRecorder({
       stoppingRef.current = false;
       onComplete?.(recording);
     },
-    [clearTimers, maxDurationSeconds, onComplete, onInterrupted]
+    [clearTimers, maxDurationSeconds, onComplete, onInterrupted],
   );
 
   // Native events ------------------------------------------------------------
@@ -287,7 +297,10 @@ export default function VoiceRecorder({
     // Our own discard path calls `abort()`, which reports back as an error.
     if (event.error === 'aborted') return;
     if (phaseRef.current !== 'recording') return;
-    void finish(false, INTERRUPTION_MESSAGES[event.error] ?? 'Recording was interrupted. Try again.');
+    void finish(
+      false,
+      INTERRUPTION_MESSAGES[event.error] ?? 'Recording was interrupted. Try again.',
+    );
   });
 
   useSpeechRecognitionEvent('end', () => {
@@ -336,7 +349,7 @@ export default function VoiceRecorder({
       setMessage(
         permission.canAskAgain
           ? 'Peitho needs the microphone and speech recognition to record your answer.'
-          : 'Microphone or speech access is off. Enable both in Settings to record.'
+          : 'Microphone or speech access is off. Enable both in Settings to record.',
       );
       return;
     }
@@ -412,7 +425,9 @@ export default function VoiceRecorder({
     if (remainingSeconds > WARN_AT_SECONDS_LEFT) return;
     warnedRef.current = true;
     if (Platform.OS !== 'web') {
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(
+        () => {},
+      );
     }
   }, [phase, remainingSeconds]);
 
@@ -439,7 +454,7 @@ export default function VoiceRecorder({
         // Not running, which is the state we wanted anyway.
       }
     },
-    [clearTimers]
+    [clearTimers],
   );
 
   if (phase === 'preparing') {
@@ -458,8 +473,15 @@ export default function VoiceRecorder({
         <Text style={[styles.clock, isWrappingUp && styles.clockWarning]}>
           {formatClock(remainingSeconds)}
         </Text>
-        <LevelMeter level={level} durationMillis={elapsedMs} active warning={isWrappingUp} />
-        <Text style={styles.hint}>{isWrappingUp ? 'Start wrapping up' : 'Recording…'}</Text>
+        <LevelMeter
+          level={level}
+          durationMillis={elapsedMs}
+          active
+          warning={isWrappingUp}
+        />
+        <Text style={styles.hint}>
+          {isWrappingUp ? 'Start wrapping up' : 'Recording…'}
+        </Text>
         <TouchableOpacity style={[styles.button, styles.stopButton]} onPress={stop}>
           <Text style={styles.buttonText}>Stop</Text>
         </TouchableOpacity>
@@ -472,7 +494,9 @@ export default function VoiceRecorder({
       <View style={styles.container}>
         <Text style={styles.hint}>Listen back, then keep it or try again.</Text>
         <TouchableOpacity style={[styles.button, styles.secondaryButton]} onPress={start}>
-          <Text style={[styles.buttonText, styles.secondaryButtonText]}>Record again</Text>
+          <Text style={[styles.buttonText, styles.secondaryButtonText]}>
+            Record again
+          </Text>
         </TouchableOpacity>
       </View>
     );
@@ -483,7 +507,9 @@ export default function VoiceRecorder({
       {message ? <Text style={styles.message}>{message}</Text> : null}
       <TouchableOpacity style={styles.button} onPress={start}>
         <Text style={styles.buttonText}>
-          {phase === 'denied' ? 'Try again' : `Start recording (${formatClock(maxDurationSeconds)})`}
+          {phase === 'denied'
+            ? 'Try again'
+            : `Start recording (${formatClock(maxDurationSeconds)})`}
         </Text>
       </TouchableOpacity>
     </View>
@@ -494,7 +520,12 @@ const styles = StyleSheet.create({
   container: { alignItems: 'center', gap: 12 },
   dot: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#c0392b' },
   dotWarning: { backgroundColor: '#e67e22' },
-  clock: { fontSize: 44, fontWeight: '300', fontVariant: ['tabular-nums'], color: '#333' },
+  clock: {
+    fontSize: 44,
+    fontWeight: '300',
+    fontVariant: ['tabular-nums'],
+    color: '#333',
+  },
   clockWarning: { color: '#e67e22' },
   hint: { fontSize: 15, color: '#888' },
   message: { fontSize: 15, color: '#c0392b', textAlign: 'center', marginBottom: 4 },
@@ -506,7 +537,11 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   stopButton: { backgroundColor: '#c0392b' },
-  secondaryButton: { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#ccc' },
+  secondaryButton: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#ccc',
+  },
   secondaryButtonText: { color: '#333' },
   buttonText: { color: '#fff', fontSize: 17, fontWeight: '600' },
 });

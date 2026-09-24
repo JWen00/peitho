@@ -50,7 +50,9 @@ export default function RootLayout() {
       setReady(true);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
     });
 
@@ -77,7 +79,10 @@ export default function RootLayout() {
       <Stack>
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="session/[id]" options={{ title: 'Session', presentation: 'card' }} />
+        <Stack.Screen
+          name="session/[id]"
+          options={{ title: 'Session', presentation: 'card' }}
+        />
       </Stack>
     </SettingsProvider>
   );
