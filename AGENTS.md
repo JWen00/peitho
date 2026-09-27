@@ -24,6 +24,12 @@ These bite every fresh setup; they are not in error messages:
   reports a misleading "docker not found". If `supabase start` dies with
   `network supabase_network_peitho not found`, run `supabase stop --no-backup`
   and start again — it's a stale network, not a real failure.
+- **`export PUBLIC_API_URL="http://127.0.0.1:54321"` before `supabase start`,**
+  or recorded talks won't play. The `talks` function signs storage URLs against
+  the internal `kong:8000` host, which a device can't reach; `config.toml` feeds
+  this var into the edge runtime (`[edge_runtime.secrets]`) so it rewrites them.
+  Read at boot, so set it first; a physical device needs your LAN IP, not
+  `127.0.0.1`. Unset it fails playback with "Unable to download asset".
 - **Android needs JDK 17 exactly** (Zulu 17), not 21. JDK 21 fails with a
   misleading foojay / `IBM_SEMERU` crash that masks the real cause.
 - **iOS `pod install` needs `LANG` set to a UTF-8 locale** or it dies on an
