@@ -52,14 +52,28 @@ colima start --cpu 4 --memory 8
 ```
 
 The Supabase CLI does not reliably follow Docker *contexts*, so point it at the
-Colima socket directly. Add this to `~/.zshrc` so every shell has it:
+Colima socket directly. You also need `PUBLIC_API_URL` so recorded talks play
+back (explained below). Add both to `~/.zshrc` so every shell has them:
 
 ```bash
 export DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"
+export PUBLIC_API_URL="http://127.0.0.1:54321"   # a physical device needs your machine's LAN IP, not 127.0.0.1
 ```
 
-Without it, `supabase start` fails with a misleading "docker: command not found"
-that reads like Colima is down. Then start the stack and load schema + seed:
+Without `DOCKER_HOST`, `supabase start` fails with a misleading "docker: command
+not found" that reads like Colima is down.
+
+`PUBLIC_API_URL` is what makes audio play. The `talks` edge function signs
+storage playback URLs against the stack's internal `kong:8000` host, which a
+simulator or device cannot reach; `config.toml` passes this variable into the
+edge runtime (`[edge_runtime.secrets]`) so the function rewrites those URLs to a
+reachable origin. It is read when the stack boots, so **export it before
+`supabase start`** — set it afterwards and you must restart the stack for it to
+take effect. Leave it unset and talks fail to play with an "Unable to download
+asset" error. It is a no-op in CI/production, where `SUPABASE_URL` is already
+public.
+
+Then start the stack and load schema + seed:
 
 ```bash
 npm run db:start    # supabase start
@@ -181,6 +195,8 @@ cd ios && pod install
 **`Could not initialize class org.gradle.toolchains.foojay.DistributionsKt`** / `NoSuchFieldError ... IBM_SEMERU`** during an Android build — no JDK 17 present. The Gradle plugin requires JDK **17 exactly** (not 21); with it missing, Gradle falls back to a pinned foojay resolver that crashes on Gradle 9. Install Zulu 17 and point `JAVA_HOME` at it — don't try to patch the resolver.
 
 **`docker: command not found` / can't connect to Docker** when running `supabase` — `DOCKER_HOST` isn't exported. See [Local backend](#local-backend-supabase).
+
+**`Unable to download asset` when playing back a talk** — `PUBLIC_API_URL` wasn't exported before `supabase start`, so signed audio URLs point at the unreachable internal `kong:8000` host. Export it and restart the stack. See [Local backend](#local-backend-supabase).
 
 **No booted simulator / no devices listed** — the iOS runtime is missing. See the iOS section above.
 
