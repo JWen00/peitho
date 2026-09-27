@@ -381,8 +381,11 @@ inspector_port = 8083
 # The Deno major version to use.
 deno_version = 2
 
-# [edge_runtime.secrets]
-# secret_key = "env(SECRET_VALUE)"
+# Local-only: give the talks function a device-reachable origin so it can
+# rewrite storage signed URLs off the internal `kong:8000` host. Read from the
+# shell env; unset in CI/production, where SUPABASE_URL is already public.
+[edge_runtime.secrets]
+PUBLIC_API_URL = "env(PUBLIC_API_URL)"
 
 [analytics]
 enabled = true
