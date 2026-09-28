@@ -1,5 +1,4 @@
 import { Tabs } from 'expo-router';
-import { Platform } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 
 export default function TabLayout() {
@@ -27,6 +26,9 @@ export default function TabLayout() {
         name="history"
         options={{
           title: 'History',
+          // The screen renders its own heading + subheading, so the nav bar
+          // title would just repeat it.
+          headerShown: false,
           tabBarIcon: ({ color }) => (
             <SymbolView
               name={{ ios: 'calendar', android: 'calendar_month', web: 'calendar_month' }}
