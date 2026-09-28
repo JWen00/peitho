@@ -21,7 +21,7 @@ import { createSessionFromUrl, supabase } from '@/lib/supabase';
 const BRAND = '#aa88f1';
 
 const logo = require('../../assets/images/auth-logo.webp');
-const floralBackground = require('../../assets/images/auth-bg.webp');
+const background = require('../../assets/images/auth-bg.webp');
 
 export default function AuthScreen() {
   const [email, setEmail] = useState('');
@@ -157,9 +157,9 @@ export default function AuthScreen() {
   return (
     <View style={styles.background}>
       <Animated.Image
-        source={floralBackground}
+        source={background}
         resizeMode="cover"
-        blurRadius={6}
+        blurRadius={2}
         style={[styles.backgroundImage, backgroundTransform]}
       />
       <View style={styles.overlay} />
