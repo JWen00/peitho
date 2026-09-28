@@ -156,11 +156,15 @@ export async function scoreTalk(input: {
   transcript: string;
   durationSeconds: number | null;
 }): Promise<FeedbackResult> {
-  // Loaded lazily: a build without the config plugin's native module throws at
-  // `requireNativeModule` on import, which here just means "unavailable".
+  // require (not dynamic import) so Metro returns the named exports directly:
+  // expo-ai-kit ships ESM-syntax .js with no "type"/"exports", where `await
+  // import()` can hand back a wrapper whose `generateObject`/`isAvailable` are
+  // undefined. This stays lazy — a build without the native module throws at
+  // `requireNativeModule` here, which we treat as "unavailable" not a crash.
   let ai: typeof import('expo-ai-kit');
   try {
-    ai = await import('expo-ai-kit');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    ai = require('expo-ai-kit');
   } catch {
     return { status: 'unavailable' };
   }
