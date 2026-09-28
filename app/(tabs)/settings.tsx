@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { MAX_TALKING_MINUTES, MIN_TALKING_MINUTES, useSettings } from '@/lib/settings';
@@ -9,6 +10,7 @@ const TALKING_OPTIONS = Array.from(
 
 export default function SettingsScreen() {
   const { talkingMinutes, setTalkingMinutes } = useSettings();
+  const router = useRouter();
 
   async function signOut() {
     const { error } = await supabase.auth.signOut();
@@ -43,6 +45,16 @@ export default function SettingsScreen() {
       <TouchableOpacity style={styles.signOut} onPress={signOut}>
         <Text style={styles.signOutText}>Sign out</Text>
       </TouchableOpacity>
+
+      {__DEV__ ? (
+        <TouchableOpacity
+          style={styles.devLink}
+          onPress={() => router.push('/stories')}
+          accessibilityRole="button"
+        >
+          <Text style={styles.devLinkText}>Story gallery (dev)</Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 }
@@ -74,4 +86,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   signOutText: { fontSize: 16, color: '#c0392b' },
+  devLink: { paddingVertical: 12, alignItems: 'center' },
+  devLinkText: { fontSize: 14, color: '#aa88f1', fontWeight: '600' },
 });
