@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
@@ -7,6 +8,7 @@ import {
   View,
 } from 'react-native';
 
+import PlanningTimer from '@/components/PlanningTimer';
 import RecordingReview from '@/components/RecordingReview';
 import VoiceRecorder, { type VoiceRecording } from '@/components/VoiceRecorder';
 import { discardRecording, newTalkId, saveSession } from '@/lib/sessions';
@@ -14,15 +16,17 @@ import { useSettings } from '@/lib/settings';
 import { getTodaysTopic } from '@/lib/topics';
 
 type SaveState =
-  | { status: 'idle' }
-  | { status: 'saving' }
-  | { status: 'saved'; attemptNumber: number }
-  | { status: 'error'; message: string };
+  { status: 'idle' } | { status: 'saving' } | { status: 'error'; message: string };
 
 export default function PracticeScreen() {
+  const router = useRouter();
   const { talkingMinutes } = useSettings();
   // Stable for the whole local day, so a retry gets the same prompt.
   const [topic] = useState(getTodaysTopic);
+  // The core loop's plan step gates the recorder: the speaker plans, then the
+  // mic opens. Saving sends us to the talk's detail screen and resets this back
+  // to 'planning', so returning to the tab starts a clean flow.
+  const [stage, setStage] = useState<'planning' | 'recording'>('planning');
   const [recording, setRecording] = useState<VoiceRecording | null>(null);
   // Minted with the take, not with the save, so "Try saving again" resends the
   // same key and the server returns the original talk instead of storing the
@@ -66,10 +70,14 @@ export default function PracticeScreen() {
         transcript: recording.transcript,
         clientTalkId,
       });
-      // The local clip is gone once uploaded, so drop our reference to it too.
+      // The local clip is gone once uploaded, so drop our reference to it too,
+      // and reset the flow so a return to this tab starts fresh at planning.
       setRecording(null);
       setClientTalkId(null);
-      setSave({ status: 'saved', attemptNumber: saved.attemptNumber });
+      setSave({ status: 'idle' });
+      setStage('planning');
+      // Open the saved talk so the user reviews it and reads the transcript.
+      router.push(`/session/${saved.id}`);
     } catch (error) {
       setSave({
         status: 'error',
@@ -77,7 +85,7 @@ export default function PracticeScreen() {
           error instanceof Error ? error.message : 'Could not save that recording.',
       });
     }
-  }, [recording, clientTalkId, topic]);
+  }, [recording, clientTalkId, topic, router]);
 
   const handleDiscard = useCallback(() => {
     if (!recording) return;
@@ -94,12 +102,16 @@ export default function PracticeScreen() {
       <Text style={styles.label}>Today&apos;s topic</Text>
       <Text style={styles.topic}>{topic.text}</Text>
 
-      <VoiceRecorder
-        onStart={handleStart}
-        onComplete={handleComplete}
-        onInterrupted={handleInterrupted}
-        maxDurationSeconds={talkingMinutes * 60}
-      />
+      {stage === 'planning' ? (
+        <PlanningTimer onReady={() => setStage('recording')} />
+      ) : (
+        <VoiceRecorder
+          onStart={handleStart}
+          onComplete={handleComplete}
+          onInterrupted={handleInterrupted}
+          maxDurationSeconds={talkingMinutes * 60}
+        />
+      )}
 
       {recording ? (
         <View style={styles.review}>
@@ -136,12 +148,6 @@ export default function PracticeScreen() {
           </View>
         </View>
       ) : null}
-
-      {save.status === 'saved' ? (
-        <Text style={styles.saved}>
-          Saved{save.attemptNumber > 1 ? ` — attempt ${save.attemptNumber}` : ''}.
-        </Text>
-      ) : null}
     </View>
   );
 }
@@ -171,7 +177,6 @@ const styles = StyleSheet.create({
   review: { alignSelf: 'stretch', marginTop: 28, gap: 18 },
   actions: { flexDirection: 'row', justifyContent: 'center', gap: 12 },
   error: { fontSize: 15, color: '#c0392b', textAlign: 'center' },
-  saved: { fontSize: 15, color: '#2e7d32', marginTop: 20 },
   saveButton: {
     backgroundColor: '#2e7d32',
     borderRadius: 14,

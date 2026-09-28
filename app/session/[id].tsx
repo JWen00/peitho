@@ -1,7 +1,9 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { SymbolView } from 'expo-symbols';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,25 +12,20 @@ import {
 } from 'react-native';
 
 import RecordingReview from '@/components/RecordingReview';
-import { deleteTalk, getTalk, type TalkDetail } from '@/lib/sessions';
+import {
+  deleteTalk,
+  getTalk,
+  getTalksByTopic,
+  type TalkDetail,
+  type TalkSummary,
+} from '@/lib/sessions';
 
 type LoadState =
   | { status: 'loading' }
   | { status: 'ready'; talk: TalkDetail }
   | { status: 'error'; message: string };
 
-/**
- * Deleting is irreversible and the button sits under the user's thumb right
- * after playback, so the first tap only arms it. `deleting` disables both
- * choices while the request is in flight.
- */
-type DeleteState =
-  | { status: 'idle' }
-  | { status: 'confirming' }
-  | { status: 'deleting' }
-  | { status: 'error'; message: string };
-
-/** "2026-09-21" → "Mon 21 Sep". Parsed as local, not UTC — see `localDate`. */
+/** "2026-09-21" → "Mon 21 Sep 2026". Parsed as local, not UTC — see `localDate`. */
 function formatDay(localDate: string): string {
   const [year, month, day] = localDate.split('-').map(Number);
   return new Date(year, month - 1, day).toLocaleDateString(undefined, {
@@ -44,12 +41,43 @@ function formatDuration(seconds: number | null): string {
   return `${Math.floor(seconds / 60)}:${`${seconds % 60}`.padStart(2, '0')}`;
 }
 
+/** A compact tappable row for one other attempt on the same topic. */
+function AttemptRow({ talk, onPress }: { talk: TalkSummary; onPress: () => void }) {
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.attemptRow, pressed && styles.attemptRowPressed]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Open attempt from ${formatDay(talk.localDate)}`}
+    >
+      <View style={styles.attemptInfo}>
+        <Text style={styles.attemptDate}>{formatDay(talk.localDate)}</Text>
+        <View style={styles.attemptMeta}>
+          <Text style={styles.attemptMetaText}>
+            {formatDuration(talk.durationSeconds)}
+          </Text>
+          {talk.attemptNumber > 1 ? (
+            <>
+              <Text style={styles.attemptMetaDot}>·</Text>
+              <Text style={styles.attemptMetaText}>attempt {talk.attemptNumber}</Text>
+            </>
+          ) : null}
+        </View>
+      </View>
+      <Text style={styles.chevron}>›</Text>
+    </Pressable>
+  );
+}
+
 export default function TalkDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
 
   const [load, setLoad] = useState<LoadState>({ status: 'loading' });
-  const [remove, setRemove] = useState<DeleteState>({ status: 'idle' });
+  // Other attempts on the same topic. null while unknown; [] once we know there
+  // are none — the section only renders when there is at least one.
+  const [attempts, setAttempts] = useState<TalkSummary[] | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Fetched once on mount rather than on focus: the signed playback URL is
   // minted per request, and refetching would swap it mid-playback.
@@ -57,7 +85,17 @@ export default function TalkDetailScreen() {
     let cancelled = false;
     getTalk(id)
       .then((talk) => {
-        if (!cancelled) setLoad({ status: 'ready', talk });
+        if (cancelled) return;
+        setLoad({ status: 'ready', talk });
+        // Best-effort: the transcript is the point of this screen, so a failure
+        // to load sibling attempts should not take the whole screen down.
+        getTalksByTopic(talk.topicText, id)
+          .then((others) => {
+            if (!cancelled) setAttempts(others);
+          })
+          .catch(() => {
+            if (!cancelled) setAttempts([]);
+          });
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -73,18 +111,32 @@ export default function TalkDetailScreen() {
   }, [id]);
 
   const confirmDelete = useCallback(async () => {
-    setRemove({ status: 'deleting' });
+    setDeleting(true);
     try {
       await deleteTalk(id);
       // Back to History, which refetches on focus and so drops this row.
       router.back();
     } catch (error) {
-      setRemove({
-        status: 'error',
-        message: error instanceof Error ? error.message : 'Could not delete that talk.',
-      });
+      setDeleting(false);
+      Alert.alert(
+        'Could not delete',
+        error instanceof Error ? error.message : 'Could not delete that talk.',
+      );
     }
   }, [id, router]);
+
+  // Tucked behind the header's "…" so an irreversible action is not sitting
+  // under the thumb; the alert is the confirmation step.
+  const promptDelete = useCallback(() => {
+    Alert.alert(
+      'Delete this talk?',
+      'The recording and its transcript are removed permanently. This can’t be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => void confirmDelete() },
+      ],
+    );
+  }, [confirmDelete]);
 
   if (load.status === 'loading') {
     return (
@@ -104,10 +156,30 @@ export default function TalkDetailScreen() {
   }
 
   const { talk } = load;
-  const busy = remove.status === 'deleting';
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+      <Stack.Screen
+        options={{
+          headerRight: () => (
+            <Pressable
+              onPress={promptDelete}
+              disabled={deleting}
+              hitSlop={12}
+              style={styles.headerButton}
+              accessibilityRole="button"
+              accessibilityLabel="Talk options"
+            >
+              <SymbolView
+                name={{ ios: 'ellipsis', android: 'more_horiz', web: 'more_horiz' }}
+                tintColor="#333"
+                size={22}
+              />
+            </Pressable>
+          ),
+        }}
+      />
+
       <Text style={styles.topic}>{talk.topicText}</Text>
       <View style={styles.meta}>
         <Text style={styles.metaText}>{formatDay(talk.localDate)}</Text>
@@ -138,60 +210,22 @@ export default function TalkDetailScreen() {
         {talk.transcript ?? 'No transcript was captured for this talk.'}
       </Text>
 
-      <View style={styles.dangerZone}>
-        {remove.status === 'idle' || remove.status === 'error' ? (
-          <>
-            {remove.status === 'error' ? (
-              <Text style={styles.deleteError}>{remove.message}</Text>
-            ) : null}
-            <Pressable
-              style={({ pressed }) => [styles.deleteButton, pressed && styles.pressed]}
-              onPress={() => setRemove({ status: 'confirming' })}
-              accessibilityRole="button"
-            >
-              <Text style={styles.deleteButtonText}>Delete talk</Text>
-            </Pressable>
-          </>
-        ) : (
-          <View style={styles.confirmBox}>
-            <Text style={styles.confirmTitle}>Delete this talk?</Text>
-            <Text style={styles.confirmBody}>
-              The recording and its transcript are removed permanently. This cannot be
-              undone.
-            </Text>
-            <View style={styles.confirmActions}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.confirmDeleteButton,
-                  pressed && styles.pressed,
-                  busy && styles.busy,
-                ]}
-                onPress={() => void confirmDelete()}
-                disabled={busy}
-                accessibilityRole="button"
-              >
-                {busy ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.confirmDeleteText}>Delete</Text>
-                )}
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.cancelButton,
-                  pressed && styles.pressed,
-                  busy && styles.busy,
-                ]}
-                onPress={() => setRemove({ status: 'idle' })}
-                disabled={busy}
-                accessibilityRole="button"
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </Pressable>
-            </View>
+      {attempts && attempts.length > 0 ? (
+        <View style={styles.attemptsSection}>
+          <Text style={styles.sectionLabel}>Other attempts on this topic</Text>
+          <View style={styles.attemptsList}>
+            {attempts.map((attempt, index) => (
+              <View key={attempt.id}>
+                {index > 0 ? <View style={styles.attemptSeparator} /> : null}
+                <AttemptRow
+                  talk={attempt}
+                  onPress={() => router.push(`/session/${attempt.id}`)}
+                />
+              </View>
+            ))}
           </View>
-        )}
-      </View>
+        </View>
+      ) : null}
     </ScrollView>
   );
 }
@@ -206,6 +240,7 @@ const styles = StyleSheet.create({
     padding: 32,
     backgroundColor: '#fff',
   },
+  headerButton: { paddingHorizontal: 8, paddingVertical: 4 },
   errorTitle: { fontSize: 18, fontWeight: '600', marginBottom: 8 },
   errorBody: { fontSize: 15, color: '#c0392b', textAlign: 'center' },
   topic: { fontSize: 22, fontWeight: '600', lineHeight: 30, marginBottom: 10 },
@@ -223,50 +258,24 @@ const styles = StyleSheet.create({
   },
   transcript: { fontSize: 16, lineHeight: 24, color: '#222' },
   transcriptEmpty: { fontSize: 15, color: '#888', fontStyle: 'italic' },
-  dangerZone: {
-    marginTop: 48,
+  attemptsSection: {
+    marginTop: 40,
     borderTopWidth: 1,
     borderTopColor: '#eee',
     paddingTop: 24,
   },
-  deleteButton: {
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#e0b4ad',
-    paddingVertical: 16,
+  attemptsList: { marginTop: 2 },
+  attemptRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-  },
-  deleteButtonText: { color: '#c0392b', fontSize: 16, fontWeight: '600' },
-  deleteError: { fontSize: 15, color: '#c0392b', textAlign: 'center', marginBottom: 12 },
-  confirmBox: {
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#e0b4ad',
-    backgroundColor: '#fdf5f4',
-    padding: 20,
-  },
-  confirmTitle: { fontSize: 17, fontWeight: '600', marginBottom: 6 },
-  confirmBody: { fontSize: 14, color: '#666', lineHeight: 20, marginBottom: 18 },
-  confirmActions: { flexDirection: 'row', gap: 12 },
-  confirmDeleteButton: {
-    flex: 1,
-    backgroundColor: '#c0392b',
-    borderRadius: 12,
     paddingVertical: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  confirmDeleteText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  cancelButton: {
-    flex: 1,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    paddingVertical: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cancelButtonText: { color: '#666', fontSize: 16, fontWeight: '600' },
-  pressed: { opacity: 0.7 },
-  busy: { opacity: 0.5 },
+  attemptRowPressed: { opacity: 0.6 },
+  attemptSeparator: { height: 1, backgroundColor: '#eee' },
+  attemptInfo: { flex: 1 },
+  attemptDate: { fontSize: 16, fontWeight: '500', color: '#222' },
+  attemptMeta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+  attemptMetaText: { fontSize: 13, color: '#888' },
+  attemptMetaDot: { fontSize: 13, color: '#ccc' },
+  chevron: { fontSize: 24, color: '#ccc', marginLeft: 12 },
 });

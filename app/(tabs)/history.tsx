@@ -1,16 +1,26 @@
+import Constants from 'expo-constants';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
-  FlatList,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 
-import { listTalks, type TalkSummary } from '@/lib/sessions';
+import { PracticeHeatmap } from '@/components/PracticeHeatmap';
+import {
+  getTalkStats,
+  listTalks,
+  type TalkStats,
+  type TalkSummary,
+} from '@/lib/sessions';
+
+/** The summary shows only the most recent handful; the heatmap covers the rest. */
+const RECENT_LIMIT = 3;
 
 type LoadState =
   { status: 'loading' } | { status: 'ready' } | { status: 'error'; message: string };
@@ -56,21 +66,34 @@ function TalkRow({ talk, onPress }: { talk: TalkSummary; onPress: () => void }) 
   );
 }
 
+function StatCard({ value, label }: { value: number; label: string }) {
+  return (
+    <View style={styles.statCard}>
+      <Text style={styles.statValue}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  );
+}
+
 export default function HistoryScreen() {
   const router = useRouter();
   const [talks, setTalks] = useState<TalkSummary[]>([]);
+  const [stats, setStats] = useState<TalkStats | null>(null);
   const [load, setLoad] = useState<LoadState>({ status: 'loading' });
   const [refreshing, setRefreshing] = useState(false);
-  const [paging, setPaging] = useState(false);
-  const cursor = useRef<string | null>(null);
 
-  const loadFirstPage = useCallback(async (isRefresh: boolean) => {
+  const loadSummary = useCallback(async (isRefresh: boolean) => {
     if (isRefresh) setRefreshing(true);
     else setLoad({ status: 'loading' });
     try {
-      const page = await listTalks();
+      // The recent list and the headline stats are independent reads, so fire
+      // them together rather than waiting one out before starting the other.
+      const [page, nextStats] = await Promise.all([
+        listTalks({ limit: RECENT_LIMIT }),
+        getTalkStats(),
+      ]);
       setTalks(page.talks);
-      cursor.current = page.nextCursor;
+      setStats(nextStats);
       setLoad({ status: 'ready' });
     } catch (error) {
       setLoad({
@@ -82,96 +105,119 @@ export default function HistoryScreen() {
     }
   }, []);
 
-  // Refetch on focus so a talk saved on the Practice tab shows up here without
-  // the user having to pull to refresh.
+  // Refetch on focus so a talk just saved on the Practice tab moves the stats and
+  // shows up at the top of the recent list without a manual reload.
   useFocusEffect(
     useCallback(() => {
-      loadFirstPage(false);
-    }, [loadFirstPage]),
+      loadSummary(false);
+    }, [loadSummary]),
   );
 
-  const loadNextPage = useCallback(async () => {
-    // `paging` guards against FlatList firing onEndReached repeatedly while a
-    // fetch is already in flight; a null cursor means there is nothing left.
-    if (paging || cursor.current === null) return;
-    setPaging(true);
-    try {
-      const page = await listTalks(cursor.current);
-      setTalks((previous) => [...previous, ...page.talks]);
-      cursor.current = page.nextCursor;
-    } catch {
-      // A failed page is not worth destroying the list the user is reading.
-      // They can pull to refresh, or scroll again to retry.
-    } finally {
-      setPaging(false);
-    }
-  }, [paging]);
-
-  if (load.status === 'loading') {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator />
-      </View>
-    );
-  }
-
   return (
-    <FlatList
-      // The background belongs on the list itself, not only on
-      // contentContainerStyle: that one paints behind the rows, leaving the
-      // area below a short list showing the default grey.
-      style={styles.list}
-      data={talks}
-      keyExtractor={(talk) => talk.id}
-      renderItem={({ item }) => (
-        <TalkRow talk={item} onPress={() => router.push(`/session/${item.id}`)} />
-      )}
-      contentContainerStyle={
-        talks.length === 0 ? styles.emptyContainer : styles.listContainer
-      }
-      ItemSeparatorComponent={() => <View style={styles.separator} />}
+    <ScrollView
+      style={styles.screen}
+      contentContainerStyle={styles.content}
       refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={() => loadFirstPage(true)} />
+        <RefreshControl refreshing={refreshing} onRefresh={() => loadSummary(true)} />
       }
-      onEndReached={loadNextPage}
-      onEndReachedThreshold={0.4}
-      ListFooterComponent={
-        paging ? <ActivityIndicator style={styles.footerSpinner} /> : null
-      }
-      ListEmptyComponent={
-        // The error lives inside the list rather than replacing it, so the
-        // RefreshControl above stays reachable — "pull down to try again" has
-        // to have something to pull.
-        load.status === 'error' ? (
-          <View style={styles.centered}>
-            <Text style={styles.errorTitle}>Could not load your talks</Text>
-            <Text style={styles.errorBody}>{load.message}</Text>
-            <Text style={styles.errorHint}>Pull down to try again.</Text>
-          </View>
-        ) : (
-          <View style={styles.centered}>
-            <Text style={styles.emptyTitle}>No talks yet</Text>
-            <Text style={styles.emptyBody}>
-              Record your first minute on the Practice tab and it will show up here.
-            </Text>
-          </View>
-        )
-      }
-    />
+    >
+      <Text style={styles.heading}>Your practice</Text>
+      <Text style={styles.subheading}>
+        Track your streak and look back on recent talks.
+      </Text>
+
+      <View style={styles.stats}>
+        <StatCard value={stats?.currentStreak ?? 0} label="Day streak" />
+        <StatCard value={stats?.totalTalks ?? 0} label="Total talks" />
+      </View>
+
+      <View style={styles.heatmapCard}>
+        <PracticeHeatmap />
+      </View>
+
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionLabel}>Recent talks</Text>
+        {load.status === 'ready' && talks.length > 0 ? (
+          <Pressable
+            onPress={() => router.push('/talks')}
+            accessibilityRole="button"
+            accessibilityLabel="View all talks"
+            hitSlop={8}
+          >
+            <Text style={styles.viewAll}>View all</Text>
+          </Pressable>
+        ) : null}
+      </View>
+      {load.status === 'loading' ? (
+        <View style={styles.centered}>
+          <ActivityIndicator />
+        </View>
+      ) : load.status === 'error' ? (
+        <View style={styles.centered}>
+          <Text style={styles.errorTitle}>Could not load your talks</Text>
+          <Text style={styles.errorBody}>{load.message}</Text>
+          <Text style={styles.errorHint}>Pull down to try again.</Text>
+        </View>
+      ) : talks.length === 0 ? (
+        <View style={styles.centered}>
+          <Text style={styles.emptyTitle}>No talks yet</Text>
+          <Text style={styles.emptyBody}>
+            Record your first minute on the Practice tab and it will show up here.
+          </Text>
+        </View>
+      ) : (
+        <View style={styles.recent}>
+          {talks.map((talk, index) => (
+            <View key={talk.id}>
+              {index > 0 ? <View style={styles.separator} /> : null}
+              <TalkRow talk={talk} onPress={() => router.push(`/session/${talk.id}`)} />
+            </View>
+          ))}
+        </View>
+      )}
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  list: { flex: 1, backgroundColor: '#fff' },
-  listContainer: { paddingVertical: 8 },
-  emptyContainer: { flexGrow: 1 },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 32,
-    backgroundColor: '#fff',
+  screen: { flex: 1, backgroundColor: '#fff' },
+  // No nav header on this tab, so pad past the status bar ourselves.
+  content: { paddingTop: Constants.statusBarHeight + 16, paddingBottom: 40 },
+  heading: { fontSize: 28, fontWeight: '700', paddingHorizontal: 20 },
+  subheading: {
+    fontSize: 15,
+    color: '#888',
+    lineHeight: 21,
+    marginTop: 4,
+    paddingHorizontal: 20,
   },
+  stats: { flexDirection: 'row', gap: 12, paddingHorizontal: 20, marginTop: 24 },
+  statCard: {
+    flex: 1,
+    backgroundColor: '#f6f5f9',
+    borderRadius: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 16,
+  },
+  statValue: { fontSize: 30, fontWeight: '700', color: '#333' },
+  statLabel: { fontSize: 13, color: '#888', marginTop: 4 },
+  heatmapCard: { paddingHorizontal: 20, marginTop: 28 },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    marginTop: 32,
+    marginBottom: 4,
+  },
+  sectionLabel: {
+    fontSize: 13,
+    color: '#888',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  viewAll: { fontSize: 14, color: '#6031c4', fontWeight: '600' },
+  recent: { marginTop: 4 },
   row: { paddingVertical: 16, paddingHorizontal: 20 },
   rowPressed: { backgroundColor: '#f4f4f4' },
   rowTopic: { fontSize: 16, fontWeight: '500', lineHeight: 22, marginBottom: 6 },
@@ -179,7 +225,7 @@ const styles = StyleSheet.create({
   rowMetaText: { fontSize: 13, color: '#888' },
   rowMetaDot: { fontSize: 13, color: '#ccc' },
   separator: { height: 1, backgroundColor: '#eee', marginLeft: 20 },
-  footerSpinner: { paddingVertical: 20 },
+  centered: { alignItems: 'center', paddingHorizontal: 32, paddingVertical: 32 },
   emptyTitle: { fontSize: 18, fontWeight: '600', marginBottom: 8 },
   emptyBody: { fontSize: 15, color: '#888', textAlign: 'center', lineHeight: 21 },
   errorTitle: { fontSize: 18, fontWeight: '600', marginBottom: 8 },
