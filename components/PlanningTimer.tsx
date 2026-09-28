@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 /** The plan's think-time before the mic opens. */
-export const PLANNING_SECONDS = 120;
+export const PLANNING_SECONDS = 10;
 
 function formatClock(totalSeconds: number): string {
   const safe = Math.max(0, Math.ceil(totalSeconds));
