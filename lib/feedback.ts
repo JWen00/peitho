@@ -5,7 +5,8 @@
 // the dev story gallery, without the top-level `requireNativeModule` crashing.
 import type { JSONSchema, LLMMessage } from 'expo-ai-kit';
 
-import { computeMetrics, type TalkMetrics } from './metrics';
+import { computeMetrics, computeMetricsFromWords, type TalkMetrics } from './metrics';
+import { transcribeTalk } from './transcribe';
 
 /** The six skills the coach scores, each defined by its self-check question. */
 export type SkillKey =
@@ -109,11 +110,17 @@ function buildUserMessage(
   transcript: string,
   metrics: TalkMetrics,
 ): string {
+  const stats =
+    `SPOKEN: ${metrics.wordCount} words (~${metrics.wpm} words/min) · ` +
+    `FILLERS DETECTED: ${metrics.fillerCount}` +
+    (metrics.maxPauseSeconds != null
+      ? ` · LONGEST PAUSE: ${metrics.maxPauseSeconds}s`
+      : '');
+
   return [
     `TOPIC: ${topic}`,
-    `SPOKEN: ${metrics.wordCount} words (~${metrics.wpm} words/min) · FILLERS DETECTED: ${metrics.fillerCount}`,
-    '(Filler count is measured, not guessed. Treat 0 as "none detected" — the',
-    'transcript may simply have been cleaned.)',
+    stats,
+    '(Stats are measured, not guessed. Treat 0 fillers as "none detected".)',
     '',
     'TRANSCRIPT:',
     '"""',
@@ -148,10 +155,15 @@ function messageForCode(code: string): string {
 /**
  * Scores one saved talk with the on-device model and returns structured feedback.
  *
+ * First tries the `transcribe` edge function (ElevenLabs) for a timestamped
+ * transcript — that gives real filler and pause numbers — and falls back to the
+ * on-device transcript if it is unavailable. Scoring itself is always on-device.
+ *
  * Never throws: unsupported devices/builds come back as `unavailable` (the caller
  * shows a gentle fallback), and real failures as `error`.
  */
 export async function scoreTalk(input: {
+  talkId: string;
   topic: string;
   transcript: string;
   durationSeconds: number | null;
@@ -171,12 +183,26 @@ export async function scoreTalk(input: {
 
   try {
     if (!(await ai.isAvailable())) return { status: 'unavailable' };
+
+    // Prefer ElevenLabs' timestamped transcript for real filler/pause numbers;
+    // fall back to the on-device transcript (text-only metrics) if it fails.
+    let transcript = input.transcript;
+    let metrics = computeMetrics(transcript, input.durationSeconds);
+    try {
+      const timed = await transcribeTalk(input.talkId);
+      if (timed.text.trim()) {
+        transcript = timed.text;
+        metrics = computeMetricsFromWords(timed.text, timed.words, input.durationSeconds);
+      }
+    } catch {
+      // Keep the on-device transcript and its text-only metrics.
+    }
+
     // iOS: no-op once Apple Intelligence is ready. Android: one-time model fetch.
     await ai.prepareBuiltInModel();
 
-    const metrics = computeMetrics(input.transcript, input.durationSeconds);
     const messages: LLMMessage[] = [
-      { role: 'user', content: buildUserMessage(input.topic, input.transcript, metrics) },
+      { role: 'user', content: buildUserMessage(input.topic, transcript, metrics) },
     ];
 
     const { object } = await ai.generateObject<TalkFeedback>(messages, SCHEMA, {

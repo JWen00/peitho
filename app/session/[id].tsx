@@ -213,6 +213,7 @@ export default function TalkDetailScreen() {
 
       {talk.transcript ? (
         <TalkFeedback
+          talkId={talk.id}
           topic={talk.topicText}
           transcript={talk.transcript}
           durationSeconds={talk.durationSeconds}

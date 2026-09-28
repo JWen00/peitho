@@ -14,6 +14,7 @@ type State =
   | { status: 'error'; message: string };
 
 interface TalkFeedbackProps {
+  talkId: string;
   topic: string;
   transcript: string;
   durationSeconds: number | null;
@@ -25,6 +26,7 @@ interface TalkFeedbackProps {
  * to a gentle note on devices/builds without the model.
  */
 export default function TalkFeedback({
+  talkId,
   topic,
   transcript,
   durationSeconds,
@@ -39,7 +41,7 @@ export default function TalkFeedback({
     running.current = true;
     setState({ status: 'loading' });
     try {
-      const result = await scoreTalk({ topic, transcript, durationSeconds });
+      const result = await scoreTalk({ talkId, topic, transcript, durationSeconds });
       if (result.status === 'ok')
         setState({ status: 'ready', feedback: result.feedback });
       else if (result.status === 'unavailable') setState({ status: 'unavailable' });
@@ -47,7 +49,7 @@ export default function TalkFeedback({
     } finally {
       running.current = false;
     }
-  }, [topic, transcript, durationSeconds]);
+  }, [talkId, topic, transcript, durationSeconds]);
 
   if (state.status === 'ready') {
     return <FeedbackView feedback={state.feedback} />;
