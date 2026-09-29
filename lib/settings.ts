@@ -1,5 +1,3 @@
-import { Platform } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
 import {
   createContext,
   createElement,
@@ -10,29 +8,13 @@ import {
   type ReactNode,
 } from 'react';
 
+import { readValue, writeValue } from './storage';
+
 export const MIN_TALKING_MINUTES = 1;
 export const MAX_TALKING_MINUTES = 5;
 export const DEFAULT_TALKING_MINUTES = 1;
 
 const TALKING_MINUTES_KEY = 'talking_minutes';
-
-// Mirrors the platform split in lib/supabase.ts: expo-secure-store is
-// native-only, so fall back to localStorage on web (guarded for static web
-// rendering, which runs this in Node with no window).
-async function readValue(key: string): Promise<string | null> {
-  if (Platform.OS === 'web') {
-    return typeof localStorage === 'undefined' ? null : localStorage.getItem(key);
-  }
-  return SecureStore.getItemAsync(key);
-}
-
-async function writeValue(key: string, value: string): Promise<void> {
-  if (Platform.OS === 'web') {
-    if (typeof localStorage !== 'undefined') localStorage.setItem(key, value);
-    return;
-  }
-  await SecureStore.setItemAsync(key, value);
-}
 
 function clampMinutes(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_TALKING_MINUTES;
