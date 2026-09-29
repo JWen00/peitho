@@ -5,6 +5,7 @@ import {
   MAX_TALKING_MINUTES,
   MIN_TALKING_MINUTES,
   useSettings,
+  type FeedbackModel,
   type TranscriptionSource,
 } from '@/lib/settings';
 
@@ -18,12 +19,19 @@ const TRANSCRIPTION_OPTIONS: { value: TranscriptionSource; label: string }[] = [
   { value: 'elevenlabs', label: 'ElevenLabs' },
 ];
 
+const FEEDBACK_MODEL_OPTIONS: { value: FeedbackModel; label: string }[] = [
+  { value: 'native', label: 'Native' },
+  { value: 'qwen3-1.7b', label: 'Qwen3 1.7B' },
+];
+
 export default function SettingsScreen() {
   const {
     talkingMinutes,
     setTalkingMinutes,
     transcriptionSource,
     setTranscriptionSource,
+    feedbackModel,
+    setFeedbackModel,
   } = useSettings();
   const router = useRouter();
 
@@ -71,6 +79,32 @@ export default function SettingsScreen() {
                 key={value}
                 style={[styles.option, selected && styles.optionSelected]}
                 onPress={() => setTranscriptionSource(value)}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+              >
+                <Text style={[styles.optionText, selected && styles.optionTextSelected]}>
+                  {label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Feedback model</Text>
+        <Text style={styles.sectionHint}>
+          Native uses your device&apos;s built-in model (needs a supported device). Qwen3
+          1.7B is a one-time ~2GB download that runs anywhere, including the simulator.
+        </Text>
+        <View style={styles.options}>
+          {FEEDBACK_MODEL_OPTIONS.map(({ value, label }) => {
+            const selected = value === feedbackModel;
+            return (
+              <TouchableOpacity
+                key={value}
+                style={[styles.option, selected && styles.optionSelected]}
+                onPress={() => setFeedbackModel(value)}
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
               >

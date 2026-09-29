@@ -34,6 +34,22 @@ function parseSource(value: string | null): TranscriptionSource {
     : DEFAULT_TRANSCRIPTION_SOURCE;
 }
 
+/**
+ * Which model scores the feedback.
+ * - 'native': the platform built-in (Apple Foundation Models on iOS 26+ / ML Kit
+ *   on Android). Zero download, but needs a supported device.
+ * - 'qwen3-1.7b': a downloadable LiteRT model (~2GB, one-time). Runs anywhere,
+ *   including the iOS Simulator.
+ */
+export type FeedbackModel = 'native' | 'qwen3-1.7b';
+export const DEFAULT_FEEDBACK_MODEL: FeedbackModel = 'qwen3-1.7b';
+
+const FEEDBACK_MODEL_KEY = 'feedback_model';
+
+function parseModel(value: string | null): FeedbackModel {
+  return value === 'native' || value === 'qwen3-1.7b' ? value : DEFAULT_FEEDBACK_MODEL;
+}
+
 // Mirrors the platform split in lib/supabase.ts: expo-secure-store is
 // native-only, so fall back to localStorage on web (guarded for static web
 // rendering, which runs this in Node with no window).
@@ -62,6 +78,8 @@ interface SettingsValue {
   setTalkingMinutes: (minutes: number) => void;
   transcriptionSource: TranscriptionSource;
   setTranscriptionSource: (source: TranscriptionSource) => void;
+  feedbackModel: FeedbackModel;
+  setFeedbackModel: (model: FeedbackModel) => void;
 }
 
 const SettingsContext = createContext<SettingsValue | null>(null);
@@ -70,6 +88,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [talkingMinutes, setTalkingMinutesState] = useState(DEFAULT_TALKING_MINUTES);
   const [transcriptionSource, setTranscriptionSourceState] =
     useState<TranscriptionSource>(DEFAULT_TRANSCRIPTION_SOURCE);
+  const [feedbackModel, setFeedbackModelState] =
+    useState<FeedbackModel>(DEFAULT_FEEDBACK_MODEL);
 
   useEffect(() => {
     readValue(TALKING_MINUTES_KEY)
@@ -80,6 +100,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     readValue(TRANSCRIPTION_SOURCE_KEY)
       .then((stored) => {
         if (stored !== null) setTranscriptionSourceState(parseSource(stored));
+      })
+      .catch(() => {});
+    readValue(FEEDBACK_MODEL_KEY)
+      .then((stored) => {
+        if (stored !== null) setFeedbackModelState(parseModel(stored));
       })
       .catch(() => {});
   }, []);
@@ -95,6 +120,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     void writeValue(TRANSCRIPTION_SOURCE_KEY, source).catch(() => {});
   }, []);
 
+  const setFeedbackModel = useCallback((model: FeedbackModel) => {
+    setFeedbackModelState(model);
+    void writeValue(FEEDBACK_MODEL_KEY, model).catch(() => {});
+  }, []);
+
   return createElement(
     SettingsContext.Provider,
     {
@@ -103,6 +133,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         setTalkingMinutes,
         transcriptionSource,
         setTranscriptionSource,
+        feedbackModel,
+        setFeedbackModel,
       },
     },
     children,

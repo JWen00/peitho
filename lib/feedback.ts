@@ -6,7 +6,7 @@
 import type { JSONSchema, LLMMessage } from 'expo-ai-kit';
 
 import { computeMetrics, computeMetricsFromWords, type TalkMetrics } from './metrics';
-import type { TranscriptionSource } from './settings';
+import type { FeedbackModel, TranscriptionSource } from './settings';
 import { transcribeTalk } from './transcribe';
 
 /** The six skills the coach scores, each defined by its self-check question. */
@@ -154,12 +154,21 @@ function messageForCode(code: string): string {
 }
 
 /**
+ * The downloadable model used for scoring. A LiteRT model (~2GB) rather than the
+ * platform built-in, so it runs without Apple Intelligence — including on the
+ * arm64 iOS Simulator. Downloaded once; the file survives app restarts.
+ */
+const MODEL_ID = 'qwen3-1.7b';
+
+/**
  * Scores one saved talk with the on-device model and returns structured feedback.
  *
  * When `source` is 'elevenlabs', re-transcribes via the `transcribe` edge
  * function for a timestamped transcript (real filler/pause numbers), falling
  * back to the on-device transcript if that fails; 'device' uses the on-device
- * transcript directly. Scoring itself is always on-device.
+ * transcript directly. Scoring itself is always on-device (qwen3-1.7b).
+ *
+ * The first run downloads the model — `onDownloadProgress` reports 0..1 for a UI.
  *
  * Never throws: unsupported devices/builds come back as `unavailable` (the caller
  * shows a gentle fallback), and real failures as `error`.
@@ -170,6 +179,8 @@ export async function scoreTalk(input: {
   transcript: string;
   durationSeconds: number | null;
   source: TranscriptionSource;
+  model: FeedbackModel;
+  onDownloadProgress?: (progress: number) => void;
 }): Promise<FeedbackResult> {
   // require (not dynamic import) so Metro returns the named exports directly:
   // expo-ai-kit ships ESM-syntax .js with no "type"/"exports", where `await
@@ -185,7 +196,28 @@ export async function scoreTalk(input: {
   }
 
   try {
-    if (!(await ai.isAvailable())) return { status: 'unavailable' };
+    if (input.model === 'qwen3-1.7b') {
+      // Downloadable model: ensure it is on disk and loaded. `setModel` is the
+      // gate — once it resolves, generateObject uses this model.
+      const model = (await ai.getDownloadableModels()).find((m) => m.id === MODEL_ID);
+      if (!model)
+        return { status: 'error', message: 'The feedback model is unavailable.' };
+      if (!model.meetsRequirements) return { status: 'unavailable' };
+
+      if (model.status !== 'downloaded' && model.status !== 'ready') {
+        console.log(
+          `[feedback] downloading ${MODEL_ID} (~${Math.round(model.sizeBytes / 1e6)}MB)…`,
+        );
+        await ai.downloadModel(MODEL_ID, { onProgress: input.onDownloadProgress });
+      }
+      if (ai.getActiveModel() !== MODEL_ID) await ai.setModel(MODEL_ID);
+    } else {
+      // Built-in model. Revert first if a downloadable is currently loaded.
+      if (ai.getActiveModel() === MODEL_ID) await ai.unloadModel().catch(() => {});
+      if (!(await ai.isAvailable())) return { status: 'unavailable' };
+      await ai.prepareBuiltInModel();
+    }
+    console.log(`[feedback] active model = ${ai.getActiveModel()}`);
 
     // Default to the on-device transcript (text-only metrics). When the user has
     // chosen ElevenLabs, re-transcribe for word timings, falling back to the
@@ -211,9 +243,6 @@ export async function scoreTalk(input: {
         );
       }
     }
-
-    // iOS: no-op once Apple Intelligence is ready. Android: one-time model fetch.
-    await ai.prepareBuiltInModel();
 
     const messages: LLMMessage[] = [
       { role: 'user', content: buildUserMessage(input.topic, transcript, metrics) },

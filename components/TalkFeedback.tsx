@@ -32,8 +32,10 @@ export default function TalkFeedback({
   transcript,
   durationSeconds,
 }: TalkFeedbackProps) {
-  const { transcriptionSource } = useSettings();
+  const { transcriptionSource, feedbackModel } = useSettings();
   const [state, setState] = useState<State>({ status: 'idle' });
+  // 0..1 while the model file downloads on first use, null otherwise.
+  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   // Scoring can take several seconds on-device; guard against a second run
   // being kicked off before the first settles.
   const running = useRef(false);
@@ -41,6 +43,7 @@ export default function TalkFeedback({
   const run = useCallback(async () => {
     if (running.current) return;
     running.current = true;
+    setDownloadProgress(null);
     setState({ status: 'loading' });
     try {
       const result = await scoreTalk({
@@ -49,6 +52,8 @@ export default function TalkFeedback({
         transcript,
         durationSeconds,
         source: transcriptionSource,
+        model: feedbackModel,
+        onDownloadProgress: setDownloadProgress,
       });
       if (result.status === 'ok')
         setState({ status: 'ready', feedback: result.feedback });
@@ -56,8 +61,9 @@ export default function TalkFeedback({
       else setState({ status: 'error', message: result.message });
     } finally {
       running.current = false;
+      setDownloadProgress(null);
     }
-  }, [talkId, topic, transcript, durationSeconds, transcriptionSource]);
+  }, [talkId, topic, transcript, durationSeconds, transcriptionSource, feedbackModel]);
 
   if (state.status === 'ready') {
     return <FeedbackView feedback={state.feedback} />;
@@ -68,8 +74,8 @@ export default function TalkFeedback({
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>Feedback</Text>
         <Text style={styles.note}>
-          On-device coaching needs iOS 26 with Apple Intelligence, or a supported Android
-          device. Your talk is still saved.
+          On-device coaching isn&apos;t available on this device (it can&apos;t run the
+          feedback model, or the build is missing it). Your talk is still saved.
         </Text>
       </View>
     );
@@ -99,7 +105,11 @@ export default function TalkFeedback({
         {loading ? (
           <View style={styles.busyRow}>
             <ActivityIndicator color="#fff" />
-            <Text style={styles.buttonText}>Coaching your talk…</Text>
+            <Text style={styles.buttonText}>
+              {downloadProgress != null && downloadProgress < 1
+                ? `Downloading model… ${Math.round(downloadProgress * 100)}%`
+                : 'Coaching your talk…'}
+            </Text>
           </View>
         ) : (
           <Text style={styles.buttonText}>
