@@ -21,10 +21,18 @@ export interface Transcription {
  * back to the cleaned on-device transcript.
  */
 export async function transcribeTalk(talkId: string): Promise<Transcription> {
+  console.log(`[transcribe] → calling ElevenLabs /transcribe for talk ${talkId}`);
   const { data, error } = await supabase.functions.invoke<Transcription>('transcribe', {
     body: { talkId },
   });
-  if (error) throw error;
+  if (error) {
+    console.warn('[transcribe] ✗ failed:', error);
+    throw error;
+  }
   if (!data) throw new Error('Transcription returned no data.');
+  console.log(
+    `[transcribe] ✓ ${data.words?.length ?? 0} words, ${data.text?.length ?? 0} chars`,
+    data.text?.slice(0, 120),
+  );
   return { text: data.text ?? '', words: data.words ?? [] };
 }

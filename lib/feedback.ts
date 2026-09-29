@@ -192,6 +192,7 @@ export async function scoreTalk(input: {
     // on-device transcript if that call fails.
     let transcript = input.transcript;
     let metrics = computeMetrics(transcript, input.durationSeconds);
+    console.log(`[feedback] transcription source = ${input.source}`);
     if (input.source === 'elevenlabs') {
       try {
         const timed = await transcribeTalk(input.talkId);
@@ -202,9 +203,12 @@ export async function scoreTalk(input: {
             timed.words,
             input.durationSeconds,
           );
+          console.log('[feedback] using ElevenLabs transcript; metrics:', metrics);
         }
       } catch {
-        // Keep the on-device transcript and its text-only metrics.
+        console.warn(
+          '[feedback] ElevenLabs failed — falling back to on-device transcript',
+        );
       }
     }
 
