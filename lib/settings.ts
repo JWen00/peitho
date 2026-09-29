@@ -16,6 +16,24 @@ export const DEFAULT_TALKING_MINUTES = 1;
 
 const TALKING_MINUTES_KEY = 'talking_minutes';
 
+/**
+ * Which transcription the feedback coach scores from. Recording always uses the
+ * on-device model; this only picks what feedback re-reads the talk with.
+ * - 'device': the on-device transcript — private, free, no timings.
+ * - 'elevenlabs': re-transcribe the audio via the `transcribe` function for word
+ *   timestamps (accurate filler/pause feedback), at the cost of a network call.
+ */
+export type TranscriptionSource = 'device' | 'elevenlabs';
+export const DEFAULT_TRANSCRIPTION_SOURCE: TranscriptionSource = 'device';
+
+const TRANSCRIPTION_SOURCE_KEY = 'transcription_source';
+
+function parseSource(value: string | null): TranscriptionSource {
+  return value === 'elevenlabs' || value === 'device'
+    ? value
+    : DEFAULT_TRANSCRIPTION_SOURCE;
+}
+
 // Mirrors the platform split in lib/supabase.ts: expo-secure-store is
 // native-only, so fall back to localStorage on web (guarded for static web
 // rendering, which runs this in Node with no window).
@@ -42,17 +60,26 @@ function clampMinutes(value: number): number {
 interface SettingsValue {
   talkingMinutes: number;
   setTalkingMinutes: (minutes: number) => void;
+  transcriptionSource: TranscriptionSource;
+  setTranscriptionSource: (source: TranscriptionSource) => void;
 }
 
 const SettingsContext = createContext<SettingsValue | null>(null);
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [talkingMinutes, setTalkingMinutesState] = useState(DEFAULT_TALKING_MINUTES);
+  const [transcriptionSource, setTranscriptionSourceState] =
+    useState<TranscriptionSource>(DEFAULT_TRANSCRIPTION_SOURCE);
 
   useEffect(() => {
     readValue(TALKING_MINUTES_KEY)
       .then((stored) => {
         if (stored !== null) setTalkingMinutesState(clampMinutes(Number(stored)));
+      })
+      .catch(() => {});
+    readValue(TRANSCRIPTION_SOURCE_KEY)
+      .then((stored) => {
+        if (stored !== null) setTranscriptionSourceState(parseSource(stored));
       })
       .catch(() => {});
   }, []);
@@ -63,9 +90,21 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     void writeValue(TALKING_MINUTES_KEY, String(next)).catch(() => {});
   }, []);
 
+  const setTranscriptionSource = useCallback((source: TranscriptionSource) => {
+    setTranscriptionSourceState(source);
+    void writeValue(TRANSCRIPTION_SOURCE_KEY, source).catch(() => {});
+  }, []);
+
   return createElement(
     SettingsContext.Provider,
-    { value: { talkingMinutes, setTalkingMinutes } },
+    {
+      value: {
+        talkingMinutes,
+        setTalkingMinutes,
+        transcriptionSource,
+        setTranscriptionSource,
+      },
+    },
     children,
   );
 }

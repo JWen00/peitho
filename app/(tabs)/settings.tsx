@@ -1,15 +1,30 @@
 import { useRouter } from 'expo-router';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { supabase } from '@/lib/supabase';
-import { MAX_TALKING_MINUTES, MIN_TALKING_MINUTES, useSettings } from '@/lib/settings';
+import {
+  MAX_TALKING_MINUTES,
+  MIN_TALKING_MINUTES,
+  useSettings,
+  type TranscriptionSource,
+} from '@/lib/settings';
 
 const TALKING_OPTIONS = Array.from(
   { length: MAX_TALKING_MINUTES - MIN_TALKING_MINUTES + 1 },
   (_, i) => MIN_TALKING_MINUTES + i,
 );
 
+const TRANSCRIPTION_OPTIONS: { value: TranscriptionSource; label: string }[] = [
+  { value: 'device', label: 'Device' },
+  { value: 'elevenlabs', label: 'ElevenLabs' },
+];
+
 export default function SettingsScreen() {
-  const { talkingMinutes, setTalkingMinutes } = useSettings();
+  const {
+    talkingMinutes,
+    setTalkingMinutes,
+    transcriptionSource,
+    setTranscriptionSource,
+  } = useSettings();
   const router = useRouter();
 
   async function signOut() {
@@ -35,6 +50,32 @@ export default function SettingsScreen() {
               >
                 <Text style={[styles.optionText, selected && styles.optionTextSelected]}>
                   {minutes} min
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Feedback transcription</Text>
+        <Text style={styles.sectionHint}>
+          Recording always uses your device. This is what feedback re-reads your talk with
+          — ElevenLabs adds filler and pause detail (uses the network).
+        </Text>
+        <View style={styles.options}>
+          {TRANSCRIPTION_OPTIONS.map(({ value, label }) => {
+            const selected = value === transcriptionSource;
+            return (
+              <TouchableOpacity
+                key={value}
+                style={[styles.option, selected && styles.optionSelected]}
+                onPress={() => setTranscriptionSource(value)}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+              >
+                <Text style={[styles.optionText, selected && styles.optionTextSelected]}>
+                  {label}
                 </Text>
               </TouchableOpacity>
             );

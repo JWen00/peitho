@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 
 import FeedbackView from '@/components/FeedbackView';
 import { scoreTalk, type TalkFeedback as Feedback } from '@/lib/feedback';
+import { useSettings } from '@/lib/settings';
 
 const BRAND = '#aa88f1';
 
@@ -31,6 +32,7 @@ export default function TalkFeedback({
   transcript,
   durationSeconds,
 }: TalkFeedbackProps) {
+  const { transcriptionSource } = useSettings();
   const [state, setState] = useState<State>({ status: 'idle' });
   // Scoring can take several seconds on-device; guard against a second run
   // being kicked off before the first settles.
@@ -41,7 +43,13 @@ export default function TalkFeedback({
     running.current = true;
     setState({ status: 'loading' });
     try {
-      const result = await scoreTalk({ talkId, topic, transcript, durationSeconds });
+      const result = await scoreTalk({
+        talkId,
+        topic,
+        transcript,
+        durationSeconds,
+        source: transcriptionSource,
+      });
       if (result.status === 'ok')
         setState({ status: 'ready', feedback: result.feedback });
       else if (result.status === 'unavailable') setState({ status: 'unavailable' });
@@ -49,7 +57,7 @@ export default function TalkFeedback({
     } finally {
       running.current = false;
     }
-  }, [talkId, topic, transcript, durationSeconds]);
+  }, [talkId, topic, transcript, durationSeconds, transcriptionSource]);
 
   if (state.status === 'ready') {
     return <FeedbackView feedback={state.feedback} />;

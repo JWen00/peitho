@@ -6,6 +6,7 @@
 import type { JSONSchema, LLMMessage } from 'expo-ai-kit';
 
 import { computeMetrics, computeMetricsFromWords, type TalkMetrics } from './metrics';
+import type { TranscriptionSource } from './settings';
 import { transcribeTalk } from './transcribe';
 
 /** The six skills the coach scores, each defined by its self-check question. */
@@ -155,9 +156,10 @@ function messageForCode(code: string): string {
 /**
  * Scores one saved talk with the on-device model and returns structured feedback.
  *
- * First tries the `transcribe` edge function (ElevenLabs) for a timestamped
- * transcript — that gives real filler and pause numbers — and falls back to the
- * on-device transcript if it is unavailable. Scoring itself is always on-device.
+ * When `source` is 'elevenlabs', re-transcribes via the `transcribe` edge
+ * function for a timestamped transcript (real filler/pause numbers), falling
+ * back to the on-device transcript if that fails; 'device' uses the on-device
+ * transcript directly. Scoring itself is always on-device.
  *
  * Never throws: unsupported devices/builds come back as `unavailable` (the caller
  * shows a gentle fallback), and real failures as `error`.
@@ -167,6 +169,7 @@ export async function scoreTalk(input: {
   topic: string;
   transcript: string;
   durationSeconds: number | null;
+  source: TranscriptionSource;
 }): Promise<FeedbackResult> {
   // require (not dynamic import) so Metro returns the named exports directly:
   // expo-ai-kit ships ESM-syntax .js with no "type"/"exports", where `await
@@ -184,18 +187,25 @@ export async function scoreTalk(input: {
   try {
     if (!(await ai.isAvailable())) return { status: 'unavailable' };
 
-    // Prefer ElevenLabs' timestamped transcript for real filler/pause numbers;
-    // fall back to the on-device transcript (text-only metrics) if it fails.
+    // Default to the on-device transcript (text-only metrics). When the user has
+    // chosen ElevenLabs, re-transcribe for word timings, falling back to the
+    // on-device transcript if that call fails.
     let transcript = input.transcript;
     let metrics = computeMetrics(transcript, input.durationSeconds);
-    try {
-      const timed = await transcribeTalk(input.talkId);
-      if (timed.text.trim()) {
-        transcript = timed.text;
-        metrics = computeMetricsFromWords(timed.text, timed.words, input.durationSeconds);
+    if (input.source === 'elevenlabs') {
+      try {
+        const timed = await transcribeTalk(input.talkId);
+        if (timed.text.trim()) {
+          transcript = timed.text;
+          metrics = computeMetricsFromWords(
+            timed.text,
+            timed.words,
+            input.durationSeconds,
+          );
+        }
+      } catch {
+        // Keep the on-device transcript and its text-only metrics.
       }
-    } catch {
-      // Keep the on-device transcript and its text-only metrics.
     }
 
     // iOS: no-op once Apple Intelligence is ready. Android: one-time model fetch.
