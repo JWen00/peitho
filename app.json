@@ -59,7 +59,9 @@
           "microphonePermission": "Peitho records your voice so you can practice and review your impromptu speeches.",
           "speechRecognitionPermission": "Peitho uses speech recognition to transcribe your recordings after each session."
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker",
+      "expo-notifications"
     ],
     "experiments": {
       "typedRoutes": true

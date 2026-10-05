@@ -3,6 +3,8 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "dependencies": {
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-community/datetimepicker": "9.1.0",
     "@supabase/server": "^1.7.0",
     "@supabase/supabase-js": "^2.108.1",
     "expo": "~56.0.11",
@@ -13,6 +15,7 @@
     "expo-font": "~56.0.6",
     "expo-haptics": "~56.0.3",
     "expo-linking": "~56.0.14",
+    "expo-notifications": "~56.0.25",
     "expo-router": "~56.2.10",
     "expo-secure-store": "~56.0.4",
     "expo-speech-recognition": "^56.0.1",
