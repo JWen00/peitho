@@ -1,6 +1,6 @@
 import { Stack } from 'expo-router';
 import { useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text } from 'react-native';
 import * as Notifications from 'expo-notifications';
 
 import { requestNotificationPermission } from '@/lib/notifications';

@@ -5,6 +5,7 @@ import { Redirect } from 'expo-router';
 export default function HeatmapStoriesRoute() {
   if (!__DEV__) return <Redirect href="/" />;
 
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- intentional: the require sits in the dead __DEV__ branch so Metro drops the story from production bundles.
   const HeatmapStories = require('@/stories/HeatmapStories').default;
   return <HeatmapStories />;
 }
