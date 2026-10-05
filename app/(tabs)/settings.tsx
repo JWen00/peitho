@@ -11,6 +11,7 @@ import {
 import DateTimePicker, {
   type DateTimePickerEvent,
 } from '@react-native-community/datetimepicker';
+import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { MAX_TALKING_MINUTES, MIN_TALKING_MINUTES, useSettings } from '@/lib/settings';
 import { type ReminderTime, useNotificationSettings } from '@/lib/notifications';
@@ -36,6 +37,7 @@ export default function SettingsScreen() {
   const { talkingMinutes, setTalkingMinutes } = useSettings();
   const { enabled, time, setEnabled, setTime } = useNotificationSettings();
   const [pickerOpen, setPickerOpen] = useState(false);
+  const router = useRouter();
 
   async function signOut() {
     const { error } = await supabase.auth.signOut();
@@ -125,9 +127,20 @@ export default function SettingsScreen() {
         )}
       </View>
 
-      <TouchableOpacity style={styles.signOut} onPress={signOut}>
-        <Text style={styles.signOutText}>Sign out</Text>
-      </TouchableOpacity>
+      <View style={styles.footer}>
+        {__DEV__ && (
+          <TouchableOpacity
+            style={styles.storiesButton}
+            onPress={() => router.push('/stories')}
+          >
+            <Text style={styles.storiesButtonText}>View stories (dev)</Text>
+          </TouchableOpacity>
+        )}
+
+        <TouchableOpacity style={styles.signOut} onPress={signOut}>
+          <Text style={styles.signOutText}>Sign out</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -163,8 +176,16 @@ const styles = StyleSheet.create({
   timeButtonText: { fontSize: 16, color: '#333', fontWeight: '600' },
   doneButton: { marginTop: 8, alignItems: 'center', paddingVertical: 8 },
   doneButtonText: { fontSize: 15, color: '#333', fontWeight: '600' },
+  footer: { marginTop: 'auto', gap: 12 },
+  storiesButton: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  storiesButtonText: { fontSize: 16, color: '#333' },
   signOut: {
-    marginTop: 'auto',
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 10,

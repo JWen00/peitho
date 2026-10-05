@@ -53,7 +53,7 @@ async function hasPermission(): Promise<boolean> {
   );
 }
 
-async function requestPermission(): Promise<boolean> {
+export async function requestNotificationPermission(): Promise<boolean> {
   if (await hasPermission()) return true;
   const settings = await Notifications.requestPermissionsAsync({
     ios: { allowAlert: true, allowBadge: true, allowSound: true },
@@ -152,7 +152,7 @@ export function NotificationSettingsProvider({ children }: { children: ReactNode
   const setEnabled = useCallback(
     async (next: boolean) => {
       if (next) {
-        const granted = await requestPermission();
+        const granted = await requestNotificationPermission();
         if (!granted) return false;
         await scheduleDailyReminder(time);
       } else {
