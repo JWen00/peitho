@@ -20,6 +20,7 @@ const SAMPLES: { caption: string; feedback: TalkFeedback }[] = [
         engagement: 4,
         expression: 5,
         flexibility: 4,
+        vocabulary: 5,
       },
       strengths: [
         'You opened with a vivid moment and stayed on it — the listener could picture the whole scene.',
@@ -41,6 +42,7 @@ const SAMPLES: { caption: string; feedback: TalkFeedback }[] = [
         engagement: 4,
         expression: 3,
         flexibility: 3,
+        vocabulary: 3,
       },
       strengths: [
         'A clear beginning, middle, and end — easy to follow the whole way through.',
@@ -63,6 +65,7 @@ const SAMPLES: { caption: string; feedback: TalkFeedback }[] = [
         engagement: 3,
         expression: 3,
         flexibility: 3,
+        vocabulary: 2,
       },
       strengths: [
         'You kept going for the full minute and stayed on topic — that is the hardest part.',

@@ -9,6 +9,12 @@ import type { TimedWord } from './transcribe';
  * {@link computeMetricsFromWords} from ElevenLabs word timings, which give real
  * pause lengths and catch fillers the cleaned transcript dropped.
  */
+/** A vague adjective the speaker leaned on, with how many times it appeared. */
+export interface VagueWord {
+  word: string;
+  count: number;
+}
+
 export interface TalkMetrics {
   /** Total words spoken. */
   wordCount: number;
@@ -18,6 +24,8 @@ export interface TalkMetrics {
   fillerCount: number;
   /** Longest silent gap between words, in seconds; null when timings are absent. */
   maxPauseSeconds: number | null;
+  /** Vague catch-all adjectives used, most-used first — material for word-choice feedback. */
+  vagueWords: VagueWord[];
 }
 
 /**
@@ -49,6 +57,44 @@ function countFillers(transcript: string): number {
   return total;
 }
 
+/**
+ * Vague catch-all adjectives worth replacing with something specific. Flagged so
+ * the language coach can name the exact words the speaker overused.
+ */
+const VAGUE_WORDS = [
+  'good',
+  'bad',
+  'nice',
+  'interesting',
+  'great',
+  'hard',
+  'important',
+  'small',
+  'different',
+  'weird',
+  'cool',
+  'beautiful',
+  'ugly',
+  'fast',
+  'slow',
+  'busy',
+  'boring',
+  'smart',
+  'strong',
+  'weak',
+];
+
+/** Which vague words appeared (with counts), most-used first. */
+function findVagueWords(transcript: string): VagueWord[] {
+  const haystack = ` ${transcript.toLowerCase()} `;
+  const found: VagueWord[] = [];
+  for (const word of VAGUE_WORDS) {
+    const count = (haystack.match(new RegExp(`\\b${word}\\b`, 'g')) ?? []).length;
+    if (count > 0) found.push({ word, count });
+  }
+  return found.sort((a, b) => b.count - a.count);
+}
+
 /** Text-only metrics (no timings): pauses are unknown, fillers best-effort. */
 export function computeMetrics(
   transcript: string,
@@ -58,7 +104,13 @@ export function computeMetrics(
   const wordCount = words.length;
   const minutes = durationSeconds && durationSeconds > 0 ? durationSeconds / 60 : 0;
   const wpm = minutes > 0 ? Math.round(wordCount / minutes) : 0;
-  return { wordCount, wpm, fillerCount: countFillers(transcript), maxPauseSeconds: null };
+  return {
+    wordCount,
+    wpm,
+    fillerCount: countFillers(transcript),
+    maxPauseSeconds: null,
+    vagueWords: findVagueWords(transcript),
+  };
 }
 
 /** Round to one decimal place. */
@@ -94,5 +146,6 @@ export function computeMetricsFromWords(
     wpm,
     fillerCount: countFillers(text),
     maxPauseSeconds: words.length >= 2 ? round1(maxPause) : null,
+    vagueWords: findVagueWords(text),
   };
 }

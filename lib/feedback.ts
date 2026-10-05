@@ -9,9 +9,15 @@ import { computeMetrics, computeMetricsFromWords, type TalkMetrics } from './met
 import type { FeedbackModel, TranscriptionSource } from './settings';
 import { transcribeTalk } from './transcribe';
 
-/** The six skills the coach scores, each defined by its self-check question. */
+/** The seven skills scored, each defined by its self-check question. */
 export type SkillKey =
-  'clarity' | 'flow' | 'structure' | 'engagement' | 'expression' | 'flexibility';
+  | 'clarity'
+  | 'flow'
+  | 'structure'
+  | 'engagement'
+  | 'expression'
+  | 'flexibility'
+  | 'vocabulary';
 
 export const SKILLS: { key: SkillKey; label: string; question: string }[] = [
   { key: 'clarity', label: 'Clarity', question: 'Could someone easily follow me?' },
@@ -36,7 +42,16 @@ export const SKILLS: { key: SkillKey; label: string; question: string }[] = [
     label: 'Flexibility',
     question: 'Could I think and speak at the same time?',
   },
+  {
+    key: 'vocabulary',
+    label: 'Vocabulary',
+    question: 'Did I use specific, vivid words instead of vague ones?',
+  },
 ];
+
+/** The two focused coaches: content judges substance, language judges the words. */
+type ContentKey = 'clarity' | 'structure' | 'engagement' | 'expression' | 'flexibility';
+type LanguageKey = 'flow' | 'vocabulary';
 
 export interface TalkFeedback {
   scores: Record<SkillKey, number>;
@@ -55,43 +70,33 @@ export function bandFor(overall: number): Band {
   return 'Getting there';
 }
 
-const SYSTEM_PROMPT = [
-  'You are a warm, encouraging impromptu-speaking coach for a one-minute practice',
-  'app. Score the speaker on six skills, then give short, specific, encouraging',
-  'feedback. Always lead with what worked. Give at most two suggestions, phrased as',
-  'gentle "next time, try..." nudges — never harsh or discouraging. Base every score',
-  'only on the transcript and the measured stats provided; do not invent details you',
-  'cannot see. Scores are 1-5 (1 = needs work, 3 = solid, 5 = excellent). The overall',
-  '0-100 score maps to a band shown to the user — 0-59 "Getting there", 60-84',
-  '"Solid", 85-100 "Sharp" — so keep your written feedback consistent with that band',
-  'while always staying warm.',
-].join(' ');
-
 const skillScore: JSONSchema = { type: 'integer', enum: [1, 2, 3, 4, 5] };
 
-const SCHEMA: JSONSchema = {
+// --- Content coach: the substance of the talk -----------------------------
+
+const CONTENT_SYSTEM = [
+  'You are a warm, encouraging impromptu-speaking coach. Judge only the SUBSTANCE',
+  'of a one-minute talk from its transcript. Lead with what worked, then give one',
+  'specific, encouraging suggestion — a gentle "next time, try..." nudge, never',
+  'harsh. Score each skill 1-5 (1 = needs work, 3 = solid, 5 = excellent).',
+].join(' ');
+
+const CONTENT_SKILLS = SKILLS.filter((s) => s.key !== 'flow' && s.key !== 'vocabulary');
+
+const CONTENT_SCHEMA: JSONSchema = {
   type: 'object',
   properties: {
     scores: {
       type: 'object',
       properties: {
         clarity: skillScore,
-        flow: skillScore,
         structure: skillScore,
         engagement: skillScore,
         expression: skillScore,
         flexibility: skillScore,
       },
-      required: [
-        'clarity',
-        'flow',
-        'structure',
-        'engagement',
-        'expression',
-        'flexibility',
-      ],
+      required: ['clarity', 'structure', 'engagement', 'expression', 'flexibility'],
     },
-    overall: { type: 'integer', description: 'Overall score from 0 to 100.' },
     strengths: {
       type: 'array',
       items: { type: 'string' },
@@ -100,28 +105,15 @@ const SCHEMA: JSONSchema = {
     suggestions: {
       type: 'array',
       items: { type: 'string' },
-      description: 'At most two gentle, actionable suggestions.',
+      description: 'One gentle, actionable suggestion about the content.',
     },
   },
-  required: ['scores', 'overall', 'strengths', 'suggestions'],
+  required: ['scores', 'strengths', 'suggestions'],
 };
 
-function buildUserMessage(
-  topic: string,
-  transcript: string,
-  metrics: TalkMetrics,
-): string {
-  const stats =
-    `SPOKEN: ${metrics.wordCount} words (~${metrics.wpm} words/min) · ` +
-    `FILLERS DETECTED: ${metrics.fillerCount}` +
-    (metrics.maxPauseSeconds != null
-      ? ` · LONGEST PAUSE: ${metrics.maxPauseSeconds}s`
-      : '');
-
+function buildContentMessage(topic: string, transcript: string): string {
   return [
     `TOPIC: ${topic}`,
-    stats,
-    '(Stats are measured, not guessed. Treat 0 fillers as "none detected".)',
     '',
     'TRANSCRIPT:',
     '"""',
@@ -129,8 +121,81 @@ function buildUserMessage(
     '"""',
     '',
     'Rate each skill 1-5 using its question:',
-    ...SKILLS.map((s) => `• ${s.key} — ${s.question}`),
+    ...CONTENT_SKILLS.map((s) => `• ${s.key} — ${s.question}`),
   ].join('\n');
+}
+
+// --- Language coach: fillers and word choice ------------------------------
+
+const VAGUE_WORDS_HINT =
+  'good, bad, nice, interesting, great, hard, important, small, different, weird, ' +
+  'cool, beautiful, ugly, fast, slow, busy, boring, smart, strong, weak';
+
+const LANGUAGE_SYSTEM = [
+  'You are a supportive speech coach focused on WORD CHOICE and delivery.',
+  'Encourage specific, vivid language and natural flow. Give concrete fixes: name',
+  'the exact filler or vague word the speaker overused and offer a sharper',
+  'replacement. Never harsh. Score each skill 1-5 (1 = needs work, 5 = excellent).',
+  `Vague catch-all adjectives to replace include: ${VAGUE_WORDS_HINT}.`,
+].join(' ');
+
+const LANGUAGE_SCHEMA: JSONSchema = {
+  type: 'object',
+  properties: {
+    scores: {
+      type: 'object',
+      properties: { flow: skillScore, vocabulary: skillScore },
+      required: ['flow', 'vocabulary'],
+    },
+    suggestions: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'One or two concrete word-choice or flow fixes, with replacements.',
+    },
+  },
+  required: ['scores', 'suggestions'],
+};
+
+function buildLanguageMessage(transcript: string, metrics: TalkMetrics): string {
+  const vague = metrics.vagueWords.length
+    ? metrics.vagueWords.map((v) => `${v.word} ×${v.count}`).join(', ')
+    : 'none detected';
+  const pause =
+    metrics.maxPauseSeconds != null ? `${metrics.maxPauseSeconds}s` : 'unknown';
+
+  return [
+    `MEASURED — fillers: ${metrics.fillerCount} · longest pause: ${pause} · vague words used: ${vague}`,
+    '(Measured, not guessed. Base flow on fillers/pause, vocabulary on vague words.)',
+    '',
+    'TRANSCRIPT:',
+    '"""',
+    transcript,
+    '"""',
+    '',
+    'Rate each skill 1-5 using its question:',
+    '• flow — Did I speak naturally without getting stuck?',
+    '• vocabulary — Did I use specific, vivid words instead of vague ones?',
+  ].join('\n');
+}
+
+// --- Merge -----------------------------------------------------------------
+
+interface ContentResult {
+  scores: Record<ContentKey, number>;
+  strengths: string[];
+  suggestions: string[];
+}
+
+interface LanguageResult {
+  scores: Record<LanguageKey, number>;
+  suggestions: string[];
+}
+
+/** Overall 0–100 from the mean of all skill scores — computed, not asked of the model. */
+function computeOverall(scores: Record<SkillKey, number>): number {
+  const values = SKILLS.map((s) => scores[s.key]);
+  const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
+  return Math.round((mean / 5) * 100);
 }
 
 export type FeedbackResult =
@@ -244,15 +309,41 @@ export async function scoreTalk(input: {
       }
     }
 
-    const messages: LLMMessage[] = [
-      { role: 'user', content: buildUserMessage(input.topic, transcript, metrics) },
+    // Two focused passes, run sequentially (one on-device model cannot handle
+    // concurrent generations). Content judges substance; language judges words.
+    const contentMessages: LLMMessage[] = [
+      { role: 'user', content: buildContentMessage(input.topic, transcript) },
     ];
+    const content = await ai.generateObject<ContentResult>(
+      contentMessages,
+      CONTENT_SCHEMA,
+      { systemPrompt: CONTENT_SYSTEM, maxRepairAttempts: 2 },
+    );
 
-    const { object } = await ai.generateObject<TalkFeedback>(messages, SCHEMA, {
-      systemPrompt: SYSTEM_PROMPT,
-      maxRepairAttempts: 3,
-    });
-    return { status: 'ok', feedback: object };
+    const languageMessages: LLMMessage[] = [
+      { role: 'user', content: buildLanguageMessage(transcript, metrics) },
+    ];
+    const language = await ai.generateObject<LanguageResult>(
+      languageMessages,
+      LANGUAGE_SCHEMA,
+      { systemPrompt: LANGUAGE_SYSTEM, maxRepairAttempts: 2 },
+    );
+
+    const scores: Record<SkillKey, number> = {
+      ...content.object.scores,
+      ...language.object.scores,
+    };
+    const feedback: TalkFeedback = {
+      scores,
+      overall: computeOverall(scores),
+      strengths: content.object.strengths.slice(0, 2),
+      suggestions: [...content.object.suggestions, ...language.object.suggestions].slice(
+        0,
+        3,
+      ),
+    };
+    console.log('[feedback] scored; overall =', feedback.overall);
+    return { status: 'ok', feedback };
   } catch (error) {
     // ModelError carries a `code`; read it structurally so we need not import the
     // class. An unavailable device/build is not a real failure.
