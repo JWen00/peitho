@@ -15,13 +15,14 @@ export interface Transcription {
 /**
  * Re-transcribes a saved talk's audio via the `transcribe` edge function
  * (ElevenLabs Scribe) to get word-level timestamps — the raw material for
- * accurate filler and pause metrics.
+ * accurate filler and pause metrics. The function calls ElevenLabs only the
+ * first time per talk and serves the stored result after that.
  *
  * Throws on failure (no key configured, network, etc.) so the caller can fall
  * back to the cleaned on-device transcript.
  */
 export async function transcribeTalk(talkId: string): Promise<Transcription> {
-  console.log(`[transcribe] → calling ElevenLabs /transcribe for talk ${talkId}`);
+  console.log(`[transcribe] → /transcribe for talk ${talkId}`);
   const { data, error } = await supabase.functions.invoke<Transcription>('transcribe', {
     body: { talkId },
   });

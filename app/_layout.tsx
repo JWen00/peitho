@@ -7,6 +7,7 @@ import type { Session } from '@supabase/supabase-js';
 
 import * as Linking from 'expo-linking';
 
+import FeedbackDoneBanner from '@/components/FeedbackDoneBanner';
 import { createSessionFromUrl, supabase } from '@/lib/supabase';
 import { SettingsProvider } from '@/lib/settings';
 
@@ -88,6 +89,7 @@ export default function RootLayout() {
           options={{ title: 'Session', presentation: 'card' }}
         />
       </Stack>
+      <FeedbackDoneBanner />
     </SettingsProvider>
   );
 }

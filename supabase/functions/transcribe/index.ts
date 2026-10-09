@@ -7,6 +7,9 @@
  * timestamps — the raw material the app needs for accurate filler and pause
  * metrics, which the on-device live transcript (cleaned, no timings) cannot give.
  *
+ * ElevenLabs is called at most once per talk: the result is stored in
+ * `sessions.timed_transcript`, and every later call is served from there.
+ *
  * The ElevenLabs key lives only here, as the `ELEVEN_API_KEY` secret; it must
  * never reach the app bundle. The route is `auth: 'user'`, so `ctx.supabase` is
  * scoped to the caller by RLS and a talk id only resolves to the caller's own row.
@@ -48,14 +51,6 @@ app.use('*', withSupabase<Database>({ auth: 'user' }));
 class BadRequest extends Error {}
 
 app.post('/', async (c) => {
-  const apiKey = Deno.env.get('ELEVEN_API_KEY');
-  if (!apiKey) {
-    // A deployment problem, not the caller's fault — log the specifics, tell the
-    // client only that transcription is unavailable.
-    console.error('transcribe: ELEVEN_API_KEY is not set');
-    throw new HTTPException(503, { message: 'Transcription is not configured.' });
-  }
-
   const { supabase } = c.var.supabaseContext;
 
   const body = await c.req.json().catch(() => null);
@@ -68,11 +63,25 @@ app.post('/', async (c) => {
   // same 404 — no way to probe which talk ids are real.
   const { data: talk, error } = await supabase
     .from('sessions')
-    .select('audio_path')
+    .select('audio_path, timed_transcript')
     .eq('id', talkId)
     .maybeSingle();
   if (error) throw error;
   if (!talk?.audio_path) throw new HTTPException(404, { message: 'No such talk.' });
+
+  // The audio never changes, so neither does its transcript: serve the stored one.
+  if (talk.timed_transcript) {
+    console.log('transcribe: served stored transcript', talkId);
+    return c.json(talk.timed_transcript);
+  }
+
+  const apiKey = Deno.env.get('ELEVEN_API_KEY');
+  if (!apiKey) {
+    // A deployment problem, not the caller's fault — log the specifics, tell the
+    // client only that transcription is unavailable.
+    console.error('transcribe: ELEVEN_API_KEY is not set');
+    throw new HTTPException(503, { message: 'Transcription is not configured.' });
+  }
 
   const { data: audio, error: downloadError } = await supabase.storage
     .from(BUCKET)
@@ -115,7 +124,19 @@ app.post('/', async (c) => {
     )
     .map((w) => ({ text: w.text, start: w.start, end: w.end }));
 
-  return c.json({ text: result.text ?? '', words });
+  const transcription = { text: result.text ?? '', words };
+
+  // Best-effort: the caller gets its transcript either way, and a failed store
+  // only means the next call pays for ElevenLabs again.
+  const { error: storeError } = await supabase
+    .from('sessions')
+    .update({ timed_transcript: transcription })
+    .eq('id', talkId);
+  if (storeError) {
+    console.error('transcribe: could not store transcript', talkId, storeError);
+  }
+
+  return c.json(transcription);
 });
 
 app.onError((err, c) => {

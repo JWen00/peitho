@@ -1,6 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import { File } from 'expo-file-system';
 
+import type { PartialFeedback, TalkFeedback } from './feedback';
 import { supabase } from './supabase';
 import { localDateString, type Topic } from './topics';
 
@@ -275,6 +276,8 @@ export async function getTalksByTopic(
 
 export interface TalkDetail extends TalkSummary {
   transcript: string | null;
+  /** Saved coaching result (possibly partial); null until feedback is first asked for. */
+  feedback: TalkFeedback | PartialFeedback | null;
   /** Signed, and short-lived — refetch the talk rather than caching this. */
   audioUrl: string | null;
   audioExpiresAt: string | null;
@@ -288,6 +291,22 @@ export async function getTalk(talkId: string): Promise<TalkDetail> {
   if (error) throw new Error(await messageFor(error));
   if (!data) throw new Error('That talk could not be loaded.');
   return data;
+}
+
+/**
+ * Stores the coaching result on its talk, so opening the talk again shows it
+ * instead of re-running the (slow) on-device model. Replaces any earlier one.
+ * A partial result is saved too, so a finished skill is not lost to a failed one.
+ */
+export async function saveTalkFeedback(
+  talkId: string,
+  feedback: TalkFeedback | PartialFeedback,
+): Promise<void> {
+  const { error } = await supabase.functions.invoke(`talks/${talkId}/feedback`, {
+    method: 'PUT',
+    body: feedback,
+  });
+  if (error) throw new Error(await messageFor(error));
 }
 
 /**

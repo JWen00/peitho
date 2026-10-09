@@ -217,6 +217,7 @@ export default function TalkDetailScreen() {
           topic={talk.topicText}
           transcript={talk.transcript}
           durationSeconds={talk.durationSeconds}
+          savedFeedback={talk.feedback}
         />
       ) : null}
 

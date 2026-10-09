@@ -61,6 +61,33 @@ export interface TalkFeedback {
   suggestions: string[];
 }
 
+/** One skill's result from the per-skill coach. */
+export interface SkillNote {
+  score: number;
+  strength: string;
+  suggestion: string;
+}
+
+/**
+ * A feedback run that scored some skills but not all — kept so the finished
+ * skills are not thrown away and a later run only has to do the rest.
+ */
+export interface PartialFeedback {
+  partial: true;
+  skills: Partial<Record<SkillKey, SkillNote>>;
+}
+
+export function isPartial(
+  feedback: TalkFeedback | PartialFeedback,
+): feedback is PartialFeedback {
+  return 'partial' in feedback;
+}
+
+/** The skills a partial result is still missing, in display order. */
+export function missingSkills(partial: PartialFeedback): typeof SKILLS {
+  return SKILLS.filter((s) => !partial.skills[s.key]);
+}
+
 export type Band = 'Getting there' | 'Solid' | 'Sharp';
 
 /** Maps the 0–100 overall score to its band. Kept in code so it is deterministic. */
@@ -178,6 +205,80 @@ function buildLanguageMessage(transcript: string, metrics: TalkMetrics): string 
   ].join('\n');
 }
 
+// --- Per-skill coach (qwen): one short prompt per skill ---------------------
+//
+// The downloadable model is slow, and its latency grows with prompt and output
+// length. Instead of two long passes it gets seven tiny ones: a single skill, a
+// single score, one strength and one suggestion. Each call is quick and much
+// harder for a 1.7B model to get wrong.
+
+const SKILL_SYSTEM = [
+  'You are a warm, encouraging impromptu-speaking coach. You judge ONE skill of a',
+  'one-minute talk from its transcript. Score it 1-5 (1 = needs work, 3 = solid,',
+  '5 = excellent), name one thing that worked, and give one gentle, specific',
+  '"next time, try..." suggestion. Never harsh. Keep each sentence short.',
+].join(' ');
+
+const SKILL_SCHEMA: JSONSchema = {
+  type: 'object',
+  properties: {
+    score: skillScore,
+    strength: {
+      type: 'string',
+      description: 'One short sentence on what worked for this skill.',
+    },
+    suggestion: {
+      type: 'string',
+      description: 'One short, actionable suggestion for this skill.',
+    },
+  },
+  required: ['score', 'strength', 'suggestion'],
+};
+
+/** Measured stats, given only to the skills they bear on. */
+function measuredFor(key: SkillKey, metrics: TalkMetrics): string[] {
+  if (key === 'flow') {
+    const pause =
+      metrics.maxPauseSeconds != null ? `${metrics.maxPauseSeconds}s` : 'unknown';
+    return [
+      `MEASURED — fillers: ${metrics.fillerCount} · longest pause: ${pause}`,
+      '(Measured, not guessed. Base the score on these. Name an overused filler.)',
+      '',
+    ];
+  }
+  if (key === 'vocabulary') {
+    const vague = metrics.vagueWords.length
+      ? metrics.vagueWords.map((v) => `${v.word} ×${v.count}`).join(', ')
+      : 'none detected';
+    return [
+      `MEASURED — vague words used: ${vague}`,
+      `(Measured, not guessed. Vague catch-all adjectives include: ${VAGUE_WORDS_HINT}.`,
+      'Suggest a sharper replacement for one vague word the speaker used.)',
+      '',
+    ];
+  }
+  return [];
+}
+
+function buildSkillMessage(
+  skill: (typeof SKILLS)[number],
+  topic: string,
+  transcript: string,
+  metrics: TalkMetrics,
+): string {
+  return [
+    `SKILL: ${skill.label} — ${skill.question}`,
+    '',
+    ...measuredFor(skill.key, metrics),
+    `TOPIC: ${topic}`,
+    '',
+    'TRANSCRIPT:',
+    '"""',
+    transcript,
+    '"""',
+  ].join('\n');
+}
+
 // --- Merge -----------------------------------------------------------------
 
 interface ContentResult {
@@ -200,6 +301,8 @@ function computeOverall(scores: Record<SkillKey, number>): number {
 
 export type FeedbackResult =
   | { status: 'ok'; feedback: TalkFeedback }
+  /** Some skills scored, others did not: the finished ones, to save and resume from. */
+  | { status: 'partial'; partial: PartialFeedback }
   /** The device or build cannot run the on-device model — show a fallback, not an error. */
   | { status: 'unavailable' }
   | { status: 'error'; message: string };
@@ -211,8 +314,13 @@ function messageForCode(code: string): string {
     case 'INFERENCE_BUSY':
       return 'The model is still finishing another request. Try again in a moment.';
     case 'DOWNLOAD_FAILED':
+    case 'DOWNLOAD_CORRUPT':
     case 'DOWNLOAD_STORAGE_FULL':
       return 'The on-device model could not be downloaded. Check storage and try again.';
+    case 'MODEL_LOAD_FAILED':
+      return 'The on-device model could not be loaded. Try again, or switch models in Settings.';
+    case 'INFERENCE_FAILED':
+      return 'The model gave an answer the app could not read. Try again.';
     default:
       return 'Could not generate feedback. Try again.';
   }
@@ -225,6 +333,159 @@ function messageForCode(code: string): string {
  */
 const MODEL_ID = 'qwen3-1.7b';
 
+type AiKit = typeof import('expo-ai-kit');
+
+/**
+ * Where a scoring run is, for a progress UI. Phases arrive in this order; any of
+ * the first three may be skipped (model already on disk, device transcript).
+ */
+export type FeedbackProgress =
+  /** First run only: fetching the model file, 0..1. */
+  | { phase: 'downloading'; progress: number }
+  /** Loading the model into memory. */
+  | { phase: 'preparing' }
+  /** Re-transcribing with ElevenLabs for word timings. */
+  | { phase: 'transcribing' }
+  /**
+   * Generating prompt `step` (0-based) of the run's prompts, named by `labels`;
+   * `completed` lists those already done (including ones kept from an earlier run).
+   */
+  | { phase: 'scoring'; step: number; labels: string[]; completed: string[] };
+
+type OnProgress = (progress: FeedbackProgress) => void;
+
+const TWO_PASS_LABELS = ['Content', 'Language'];
+const SKILL_LABELS = SKILLS.map((s) => s.label);
+
+/**
+ * Built-in model: two focused passes, run sequentially (one on-device model
+ * cannot handle concurrent generations). Content judges substance; language
+ * judges words.
+ */
+async function scoreTwoPass(
+  ai: AiKit,
+  topic: string,
+  transcript: string,
+  metrics: TalkMetrics,
+  onProgress?: OnProgress,
+): Promise<TalkFeedback> {
+  onProgress?.({ phase: 'scoring', step: 0, labels: TWO_PASS_LABELS, completed: [] });
+  const contentMessages: LLMMessage[] = [
+    { role: 'user', content: buildContentMessage(topic, transcript) },
+  ];
+  const content = await ai.generateObject<ContentResult>(
+    contentMessages,
+    CONTENT_SCHEMA,
+    {
+      systemPrompt: CONTENT_SYSTEM,
+      maxRepairAttempts: 2,
+    },
+  );
+
+  onProgress?.({
+    phase: 'scoring',
+    step: 1,
+    labels: TWO_PASS_LABELS,
+    completed: ['Content'],
+  });
+  const languageMessages: LLMMessage[] = [
+    { role: 'user', content: buildLanguageMessage(transcript, metrics) },
+  ];
+  const language = await ai.generateObject<LanguageResult>(
+    languageMessages,
+    LANGUAGE_SCHEMA,
+    { systemPrompt: LANGUAGE_SYSTEM, maxRepairAttempts: 2 },
+  );
+
+  const scores: Record<SkillKey, number> = {
+    ...content.object.scores,
+    ...language.object.scores,
+  };
+  return {
+    scores,
+    overall: computeOverall(scores),
+    strengths: content.object.strengths.slice(0, 2),
+    suggestions: [...content.object.suggestions, ...language.object.suggestions].slice(
+      0,
+      3,
+    ),
+  };
+}
+
+/** Builds the final feedback from a note for every skill. */
+function assembleFeedback(notes: Record<SkillKey, SkillNote>): TalkFeedback {
+  const results = SKILLS.map((s) => ({ key: s.key, note: notes[s.key] }));
+  const scores = Object.fromEntries(
+    results.map(({ key, note }) => [key, note.score]),
+  ) as Record<SkillKey, number>;
+  // Stable sorts keep SKILLS order among equal scores. Strengths come from the
+  // highest-scoring skills and suggestions from the lowest, so the advice
+  // targets what most needs work.
+  const best = [...results].sort((a, b) => b.note.score - a.note.score);
+  const worst = [...results].sort((a, b) => a.note.score - b.note.score);
+  return {
+    scores,
+    overall: computeOverall(scores),
+    strengths: best.slice(0, 2).map(({ note }) => note.strength),
+    suggestions: worst.slice(0, 3).map(({ note }) => note.suggestion),
+  };
+}
+
+/**
+ * Downloadable model: one short prompt per skill, run sequentially.
+ *
+ * A skill whose answer cannot be read (`INFERENCE_FAILED`) is skipped and the
+ * rest still run; any other error stops the run. Either way the skills already
+ * scored are returned as a {@link PartialFeedback} rather than discarded — and
+ * `resume` feeds such a result back in so only the missing skills are redone.
+ */
+async function scorePerSkill(
+  ai: AiKit,
+  topic: string,
+  transcript: string,
+  metrics: TalkMetrics,
+  resume: PartialFeedback['skills'],
+  onProgress?: OnProgress,
+): Promise<TalkFeedback | PartialFeedback> {
+  const notes: Partial<Record<SkillKey, SkillNote>> = { ...resume };
+  const completed = () => SKILLS.filter((s) => notes[s.key]).map((s) => s.label);
+  let stopped: unknown = null;
+
+  for (const [index, skill] of SKILLS.entries()) {
+    if (notes[skill.key]) continue;
+    onProgress?.({
+      phase: 'scoring',
+      step: index,
+      labels: SKILL_LABELS,
+      completed: completed(),
+    });
+    const messages: LLMMessage[] = [
+      { role: 'user', content: buildSkillMessage(skill, topic, transcript, metrics) },
+    ];
+    try {
+      const { object } = await ai.generateObject<SkillNote>(messages, SKILL_SCHEMA, {
+        systemPrompt: SKILL_SYSTEM,
+        maxRepairAttempts: 2,
+      });
+      console.log(`[feedback] ${skill.key} = ${object.score}`);
+      notes[skill.key] = object;
+    } catch (error) {
+      const code = (error as { code?: unknown }).code;
+      console.warn(`[feedback] ${skill.key} failed:`, code, error);
+      stopped = error;
+      // An unreadable answer is specific to this skill; anything else (out of
+      // memory, model gone) will hit the next one too, so stop.
+      if (code !== 'INFERENCE_FAILED') break;
+    }
+  }
+
+  if (SKILLS.every((s) => notes[s.key]))
+    return assembleFeedback(notes as Record<SkillKey, SkillNote>);
+  // Nothing scored at all: that is a plain failure, not a partial result.
+  if (Object.keys(notes).length === 0) throw stopped;
+  return { partial: true, skills: notes };
+}
+
 /**
  * Scores one saved talk with the on-device model and returns structured feedback.
  *
@@ -233,7 +494,8 @@ const MODEL_ID = 'qwen3-1.7b';
  * back to the on-device transcript if that fails; 'device' uses the on-device
  * transcript directly. Scoring itself is always on-device (qwen3-1.7b).
  *
- * The first run downloads the model — `onDownloadProgress` reports 0..1 for a UI.
+ * `onProgress` reports each phase (download, model load, transcription, and
+ * each scoring prompt) for a progress UI — see {@link FeedbackProgress}.
  *
  * Never throws: unsupported devices/builds come back as `unavailable` (the caller
  * shows a gentle fallback), and real failures as `error`.
@@ -245,14 +507,16 @@ export async function scoreTalk(input: {
   durationSeconds: number | null;
   source: TranscriptionSource;
   model: FeedbackModel;
-  onDownloadProgress?: (progress: number) => void;
+  /** Skills already scored by an earlier, unfinished run; only the rest are redone. */
+  resume?: PartialFeedback['skills'];
+  onProgress?: OnProgress;
 }): Promise<FeedbackResult> {
   // require (not dynamic import) so Metro returns the named exports directly:
   // expo-ai-kit ships ESM-syntax .js with no "type"/"exports", where `await
   // import()` can hand back a wrapper whose `generateObject`/`isAvailable` are
   // undefined. This stays lazy — a build without the native module throws at
   // `requireNativeModule` here, which we treat as "unavailable" not a crash.
-  let ai: typeof import('expo-ai-kit');
+  let ai: AiKit;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     ai = require('expo-ai-kit');
@@ -273,13 +537,19 @@ export async function scoreTalk(input: {
         console.log(
           `[feedback] downloading ${MODEL_ID} (~${Math.round(model.sizeBytes / 1e6)}MB)…`,
         );
-        await ai.downloadModel(MODEL_ID, { onProgress: input.onDownloadProgress });
+        input.onProgress?.({ phase: 'downloading', progress: 0 });
+        await ai.downloadModel(MODEL_ID, {
+          onProgress: (progress) =>
+            input.onProgress?.({ phase: 'downloading', progress }),
+        });
       }
+      input.onProgress?.({ phase: 'preparing' });
       if (ai.getActiveModel() !== MODEL_ID) await ai.setModel(MODEL_ID);
     } else {
       // Built-in model. Revert first if a downloadable is currently loaded.
       if (ai.getActiveModel() === MODEL_ID) await ai.unloadModel().catch(() => {});
       if (!(await ai.isAvailable())) return { status: 'unavailable' };
+      input.onProgress?.({ phase: 'preparing' });
       await ai.prepareBuiltInModel();
     }
     console.log(`[feedback] active model = ${ai.getActiveModel()}`);
@@ -292,6 +562,7 @@ export async function scoreTalk(input: {
     console.log(`[feedback] transcription source = ${input.source}`);
     if (input.source === 'elevenlabs') {
       try {
+        input.onProgress?.({ phase: 'transcribing' });
         const timed = await transcribeTalk(input.talkId);
         if (timed.text.trim()) {
           transcript = timed.text;
@@ -309,45 +580,38 @@ export async function scoreTalk(input: {
       }
     }
 
-    // Two focused passes, run sequentially (one on-device model cannot handle
-    // concurrent generations). Content judges substance; language judges words.
-    const contentMessages: LLMMessage[] = [
-      { role: 'user', content: buildContentMessage(input.topic, transcript) },
-    ];
-    const content = await ai.generateObject<ContentResult>(
-      contentMessages,
-      CONTENT_SCHEMA,
-      { systemPrompt: CONTENT_SYSTEM, maxRepairAttempts: 2 },
-    );
+    if (input.model === 'qwen3-1.7b') {
+      const scored = await scorePerSkill(
+        ai,
+        input.topic,
+        transcript,
+        metrics,
+        input.resume ?? {},
+        input.onProgress,
+      );
+      if (isPartial(scored)) {
+        console.log('[feedback] partial; scored', Object.keys(scored.skills).length);
+        return { status: 'partial', partial: scored };
+      }
+      console.log('[feedback] scored; overall =', scored.overall);
+      return { status: 'ok', feedback: scored };
+    }
 
-    const languageMessages: LLMMessage[] = [
-      { role: 'user', content: buildLanguageMessage(transcript, metrics) },
-    ];
-    const language = await ai.generateObject<LanguageResult>(
-      languageMessages,
-      LANGUAGE_SCHEMA,
-      { systemPrompt: LANGUAGE_SYSTEM, maxRepairAttempts: 2 },
+    const feedback = await scoreTwoPass(
+      ai,
+      input.topic,
+      transcript,
+      metrics,
+      input.onProgress,
     );
-
-    const scores: Record<SkillKey, number> = {
-      ...content.object.scores,
-      ...language.object.scores,
-    };
-    const feedback: TalkFeedback = {
-      scores,
-      overall: computeOverall(scores),
-      strengths: content.object.strengths.slice(0, 2),
-      suggestions: [...content.object.suggestions, ...language.object.suggestions].slice(
-        0,
-        3,
-      ),
-    };
     console.log('[feedback] scored; overall =', feedback.overall);
     return { status: 'ok', feedback };
   } catch (error) {
     // ModelError carries a `code`; read it structurally so we need not import the
     // class. An unavailable device/build is not a real failure.
     const code = (error as { code?: unknown }).code;
+    // The user sees a short message; keep the real cause findable in the logs.
+    console.warn('[feedback] failed:', code, error);
     if (code === 'LLM_NOT_ENABLED' || code === 'DEVICE_NOT_SUPPORTED') {
       return { status: 'unavailable' };
     }
