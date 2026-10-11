@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 
 import RecordingReview from '@/components/RecordingReview';
+import TalkFeedback from '@/components/TalkFeedback';
 import {
   deleteTalk,
   getTalk,
@@ -209,6 +210,16 @@ export default function TalkDetailScreen() {
       <Text style={talk.transcript ? styles.transcript : styles.transcriptEmpty}>
         {talk.transcript ?? 'No transcript was captured for this talk.'}
       </Text>
+
+      {talk.transcript ? (
+        <TalkFeedback
+          talkId={talk.id}
+          topic={talk.topicText}
+          transcript={talk.transcript}
+          durationSeconds={talk.durationSeconds}
+          savedFeedback={talk.feedback}
+        />
+      ) : null}
 
       {attempts && attempts.length > 0 ? (
         <View style={styles.attemptsSection}>

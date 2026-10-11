@@ -19,6 +19,9 @@ export default function StoriesIndex() {
         <Link href="/stories/heatmap" style={styles.row}>
           <Text style={styles.rowText}>Heatmap</Text>
         </Link>
+        <Link href="/stories/feedback" style={styles.row}>
+          <Text style={styles.rowText}>Feedback</Text>
+        </Link>
       </View>
     </>
   );

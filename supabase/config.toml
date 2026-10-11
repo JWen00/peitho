@@ -386,6 +386,9 @@ deno_version = 2
 # shell env; unset in CI/production, where SUPABASE_URL is already public.
 [edge_runtime.secrets]
 PUBLIC_API_URL = "env(PUBLIC_API_URL)"
+# ElevenLabs Scribe key for the `transcribe` function. Never shipped in the app.
+# Local: put the value in .env.local (gitignored). Hosted: `supabase secrets set`.
+ELEVEN_API_KEY = "env(ELEVEN_API_KEY)"
 
 [analytics]
 enabled = true

@@ -13,13 +13,29 @@ import DateTimePicker, {
 } from '@react-native-community/datetimepicker';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-import { MAX_TALKING_MINUTES, MIN_TALKING_MINUTES, useSettings } from '@/lib/settings';
+import {
+  MAX_TALKING_MINUTES,
+  MIN_TALKING_MINUTES,
+  useSettings,
+  type FeedbackModel,
+  type TranscriptionSource,
+} from '@/lib/settings';
 import { type ReminderTime, useNotificationSettings } from '@/lib/notifications';
 
 const TALKING_OPTIONS = Array.from(
   { length: MAX_TALKING_MINUTES - MIN_TALKING_MINUTES + 1 },
   (_, i) => MIN_TALKING_MINUTES + i,
 );
+
+const TRANSCRIPTION_OPTIONS: { value: TranscriptionSource; label: string }[] = [
+  { value: 'device', label: 'Device' },
+  { value: 'elevenlabs', label: 'ElevenLabs' },
+];
+
+const FEEDBACK_MODEL_OPTIONS: { value: FeedbackModel; label: string }[] = [
+  { value: 'native', label: 'Native' },
+  { value: 'qwen3-1.7b', label: 'Qwen3 1.7B' },
+];
 
 function formatTime({ hour, minute }: ReminderTime): string {
   const period = hour < 12 ? 'AM' : 'PM';
@@ -34,7 +50,14 @@ function timeToDate({ hour, minute }: ReminderTime): Date {
 }
 
 export default function SettingsScreen() {
-  const { talkingMinutes, setTalkingMinutes } = useSettings();
+  const {
+    talkingMinutes,
+    setTalkingMinutes,
+    transcriptionSource,
+    setTranscriptionSource,
+    feedbackModel,
+    setFeedbackModel,
+  } = useSettings();
   const { enabled, time, setEnabled, setTime } = useNotificationSettings();
   const [pickerOpen, setPickerOpen] = useState(false);
   const router = useRouter();
@@ -125,6 +148,58 @@ export default function SettingsScreen() {
             <Text style={styles.doneButtonText}>Done</Text>
           </TouchableOpacity>
         )}
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Feedback transcription</Text>
+        <Text style={styles.sectionHint}>
+          Recording always uses your device. This is what feedback re-reads your talk with
+          — ElevenLabs adds filler and pause detail (uses the network).
+        </Text>
+        <View style={styles.options}>
+          {TRANSCRIPTION_OPTIONS.map(({ value, label }) => {
+            const selected = value === transcriptionSource;
+            return (
+              <TouchableOpacity
+                key={value}
+                style={[styles.option, selected && styles.optionSelected]}
+                onPress={() => setTranscriptionSource(value)}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+              >
+                <Text style={[styles.optionText, selected && styles.optionTextSelected]}>
+                  {label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Feedback model</Text>
+        <Text style={styles.sectionHint}>
+          Native uses your device&apos;s built-in model (needs a supported device). Qwen3
+          1.7B is a one-time ~2GB download that runs anywhere, including the simulator.
+        </Text>
+        <View style={styles.options}>
+          {FEEDBACK_MODEL_OPTIONS.map(({ value, label }) => {
+            const selected = value === feedbackModel;
+            return (
+              <TouchableOpacity
+                key={value}
+                style={[styles.option, selected && styles.optionSelected]}
+                onPress={() => setFeedbackModel(value)}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+              >
+                <Text style={[styles.optionText, selected && styles.optionTextSelected]}>
+                  {label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
       </View>
 
       <View style={styles.footer}>

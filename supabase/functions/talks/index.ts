@@ -5,6 +5,7 @@
  *   GET    /talks            paginated history, newest first
  *   GET    /talks/:talkId    one talk, with a signed playback URL
  *   DELETE /talks/:talkId    remove a talk and its audio
+ *   PUT    /talks/:talkId/feedback   save the on-device coaching result
  *
  * One function rather than three: Supabase gives each function its own URL and
  * its own cold start, and these three share all of their auth, CORS and
@@ -73,14 +74,19 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** Columns a list item needs. Transcript and audio are detail-only. */
 const LIST_COLUMNS =
   'id, topic_text, duration_seconds, attempt_number, local_date, created_at';
-const DETAIL_COLUMNS = `${LIST_COLUMNS}, transcript, audio_path`;
+const DETAIL_COLUMNS = `${LIST_COLUMNS}, transcript, audio_path, feedback`;
 
 type SessionRow = Database['public']['Tables']['sessions']['Row'];
 
 /** Exactly what `LIST_COLUMNS` selects. A detail row is structurally wider. */
 type TalkListRow = Pick<
   SessionRow,
-  'id' | 'topic_text' | 'duration_seconds' | 'attempt_number' | 'local_date' | 'created_at'
+  | 'id'
+  | 'topic_text'
+  | 'duration_seconds'
+  | 'attempt_number'
+  | 'local_date'
+  | 'created_at'
 >;
 
 const app = new Hono().basePath('/talks');
@@ -280,7 +286,9 @@ app.post('/', async (c) => {
         .eq('client_talk_id', clientTalkId)
         .maybeSingle();
       if (winner) return c.json(toListItem(winner), 200);
-      throw new HTTPException(409, { message: 'That talk conflicts with an existing one.' });
+      throw new HTTPException(409, {
+        message: 'That talk conflicts with an existing one.',
+      });
     }
 
     throw insertError;
@@ -296,7 +304,9 @@ app.get('/', async (c) => {
 
   const from = c.req.query('from');
   const to = c.req.query('to');
-  if (from !== undefined && !DATE_RE.test(from)) fail('"from" must be a YYYY-MM-DD date.');
+  if (from !== undefined && !DATE_RE.test(from)) {
+    fail('"from" must be a YYYY-MM-DD date.');
+  }
   if (to !== undefined && !DATE_RE.test(to)) fail('"to" must be a YYYY-MM-DD date.');
 
   const limitRaw = c.req.query('limit');
@@ -372,9 +382,139 @@ app.get('/:talkId', async (c) => {
   return c.json({
     ...toListItem(talk),
     transcript: talk.transcript,
+    feedback: talk.feedback,
     audioUrl,
     audioExpiresAt,
   });
+});
+
+// PUT /talks/:talkId/feedback -----------------------------------------------
+
+/** Mirrors `SkillKey` in lib/feedback.ts — the skills a feedback must score. */
+const SKILL_KEYS = [
+  'clarity',
+  'flow',
+  'structure',
+  'engagement',
+  'expression',
+  'flexibility',
+  'vocabulary',
+] as const;
+
+const MAX_FEEDBACK_ITEMS = 5;
+const MAX_FEEDBACK_ITEM_LENGTH = 1000;
+
+function requireTextList(value: unknown, field: string): string[] {
+  if (
+    !Array.isArray(value) ||
+    value.length > MAX_FEEDBACK_ITEMS ||
+    !value.every((item) =>
+      typeof item === 'string' && item.length <= MAX_FEEDBACK_ITEM_LENGTH
+    )
+  ) {
+    fail(
+      `"${field}" must be at most ${MAX_FEEDBACK_ITEMS} strings of at most ${MAX_FEEDBACK_ITEM_LENGTH} characters.`,
+    );
+  }
+  return value;
+}
+
+function requireScore(value: unknown, field: string, min: number, max: number): number {
+  if (
+    typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max
+  ) {
+    fail(`"${field}" must be a whole number from ${min} to ${max}.`);
+  }
+  return value;
+}
+
+function requireSentence(value: unknown, field: string): string {
+  if (typeof value !== 'string' || value.length > MAX_FEEDBACK_ITEM_LENGTH) {
+    fail(
+      `"${field}" must be a string of at most ${MAX_FEEDBACK_ITEM_LENGTH} characters.`,
+    );
+  }
+  return value;
+}
+
+/**
+ * Scoring happens on the device, so the server cannot vouch for the numbers —
+ * only that they have the shape the app reads back. Rebuilding the object from
+ * known fields keeps anything else the client sent out of the column.
+ *
+ * Two shapes are accepted: a complete result, and a `partial` one holding the
+ * skills a run finished before another failed (so they are not lost).
+ */
+function requireFeedback(body: unknown) {
+  if (typeof body !== 'object' || body === null) fail('Body must be a feedback object.');
+  const input = body as Record<string, unknown>;
+
+  if (input.partial === true) {
+    const skills = input.skills;
+    if (typeof skills !== 'object' || skills === null) fail('"skills" is required.');
+    const checked: Record<
+      string,
+      { score: number; strength: string; suggestion: string }
+    > = {};
+    for (const key of SKILL_KEYS) {
+      const note = (skills as Record<string, unknown>)[key];
+      if (note === undefined) continue;
+      if (typeof note !== 'object' || note === null) {
+        fail(`"skills.${key}" must be an object.`);
+      }
+      const { score, strength, suggestion } = note as Record<string, unknown>;
+      checked[key] = {
+        score: requireScore(score, `skills.${key}.score`, 1, 5),
+        strength: requireSentence(strength, `skills.${key}.strength`),
+        suggestion: requireSentence(suggestion, `skills.${key}.suggestion`),
+      };
+    }
+    if (Object.keys(checked).length === 0) {
+      fail('"skills" must contain at least one skill.');
+    }
+    return { partial: true, skills: checked };
+  }
+
+  const { scores, overall, strengths, suggestions } = input;
+
+  if (typeof scores !== 'object' || scores === null) fail('"scores" is required.');
+  const checked: Record<string, number> = {};
+  for (const key of SKILL_KEYS) {
+    checked[key] = requireScore(
+      (scores as Record<string, unknown>)[key],
+      `scores.${key}`,
+      1,
+      5,
+    );
+  }
+
+  return {
+    scores: checked,
+    overall: requireScore(overall, 'overall', 0, 100),
+    strengths: requireTextList(strengths, 'strengths'),
+    suggestions: requireTextList(suggestions, 'suggestions'),
+  };
+}
+
+app.put('/:talkId/feedback', async (c) => {
+  const { supabase } = c.var.supabaseContext;
+
+  const talkId = c.req.param('talkId');
+  if (!UUID_RE.test(talkId)) fail('"talkId" must be a uuid.');
+
+  const feedback = requireFeedback(await c.req.json().catch(() => null));
+
+  // Replaces any earlier result: scoring again is how the user refreshes it.
+  const { data, error } = await supabase
+    .from('sessions')
+    .update({ feedback })
+    .eq('id', talkId)
+    .select('id')
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new HTTPException(404, { message: 'No such talk.' });
+
+  return c.json({ feedback });
 });
 
 // DELETE /talks/:talkId -----------------------------------------------------
@@ -399,14 +539,21 @@ app.delete('/:talkId', async (c) => {
   // still sees the talk gone and only some unreferenced bytes remain, which is
   // recoverable. The reverse order can leave a row pointing at missing audio,
   // which shows up as a talk that will not play.
-  const { error: deleteError } = await supabase.from('sessions').delete().eq('id', talkId);
+  const { error: deleteError } = await supabase.from('sessions').delete().eq(
+    'id',
+    talkId,
+  );
   if (deleteError) throw deleteError;
 
   if (talk.audio_path) {
-    const { error: removeError } = await supabase.storage.from(BUCKET).remove([talk.audio_path]);
+    const { error: removeError } = await supabase.storage.from(BUCKET).remove([
+      talk.audio_path,
+    ]);
     // Logged, not surfaced: the talk is gone as far as the caller is concerned,
     // and failing the request now would invite a retry that 404s.
-    if (removeError) console.error('talks: orphaned object', talk.audio_path, removeError);
+    if (removeError) {
+      console.error('talks: orphaned object', talk.audio_path, removeError);
+    }
   }
 
   return c.body(null, 204);
