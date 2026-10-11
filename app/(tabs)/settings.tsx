@@ -57,6 +57,8 @@ export default function SettingsScreen() {
     setTranscriptionSource,
     feedbackModel,
     setFeedbackModel,
+    autoFeedback,
+    setAutoFeedback,
   } = useSettings();
   const { enabled, time, setEnabled, setTime } = useNotificationSettings();
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -199,6 +201,20 @@ export default function SettingsScreen() {
               </TouchableOpacity>
             );
           })}
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <View style={styles.row}>
+          <View style={styles.rowText}>
+            <Text style={styles.sectionTitle}>Score talks automatically</Text>
+            <Text style={styles.sectionHint}>
+              Start feedback as soon as a talk is saved, so it&apos;s often ready when you
+              open it. The first run downloads the model if it isn&apos;t on your device
+              yet.
+            </Text>
+          </View>
+          <Switch value={autoFeedback} onValueChange={setAutoFeedback} />
         </View>
       </View>
 

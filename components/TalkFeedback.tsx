@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import Animated, { FadeIn } from 'react-native-reanimated';
 
-import FeedbackView from '@/components/FeedbackView';
+import FeedbackView, { ScoreDots } from '@/components/FeedbackView';
 import {
   isPartial,
   missingSkills,
   SKILLS,
   type FeedbackProgress,
   type PartialFeedback,
+  type SkillKey,
+  type SkillNote,
   type TalkFeedback as Feedback,
 } from '@/lib/feedback';
 import { startFeedback, useFeedbackJob, type FeedbackJob } from '@/lib/feedbackJobs';
@@ -191,6 +194,31 @@ function fractionOf(progress: FeedbackProgress | null): number {
   }
 }
 
+/**
+ * Skills that have landed so far, in display order. Each is final the moment it
+ * appears, so the user can start reading while the rest are still being scored.
+ */
+function LiveResults({ notes }: { notes: Partial<Record<SkillKey, SkillNote>> }) {
+  const done = SKILLS.filter((skill) => notes[skill.key]);
+  if (done.length === 0) return null;
+  return (
+    <View style={styles.live}>
+      {done.map((skill) => {
+        const note = notes[skill.key]!;
+        return (
+          <Animated.View key={skill.key} entering={FadeIn} style={styles.liveRow}>
+            <View style={styles.liveHead}>
+              <Text style={styles.liveSkill}>{skill.label}</Text>
+              <ScoreDots score={note.score} />
+            </View>
+            <Text style={styles.liveText}>{note.strength}</Text>
+          </Animated.View>
+        );
+      })}
+    </View>
+  );
+}
+
 function formatElapsed(ms: number): string {
   const seconds = Math.floor(ms / 1000);
   return `${Math.floor(seconds / 60)}:${`${seconds % 60}`.padStart(2, '0')}`;
@@ -265,6 +293,8 @@ function FeedbackProgressCard({
         </View>
       ) : null}
 
+      {scoring ? <LiveResults notes={scoring.notes} /> : null}
+
       <Text style={styles.hint}>
         This can take a few minutes. Feel free to leave this screen — your feedback will
         keep going and be saved to this talk. Closing the app stops it.
@@ -319,6 +349,15 @@ const styles = StyleSheet.create({
   stepTextDone: { color: '#6b4fc0' },
   stepTextCurrent: { color: '#333', fontWeight: '600' },
   hint: { fontSize: 13, color: '#888', lineHeight: 18 },
+  live: { gap: 12, paddingTop: 4 },
+  liveRow: { gap: 4 },
+  liveHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  liveSkill: { fontSize: 15, fontWeight: '600', color: '#333' },
+  liveText: { fontSize: 14, color: '#555', lineHeight: 20 },
   partial: {
     backgroundColor: '#f7f3fe',
     borderRadius: 12,
