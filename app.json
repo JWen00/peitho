@@ -60,6 +60,8 @@
           "speechRecognitionPermission": "Peitho uses speech recognition to transcribe your recordings after each session."
         }
       ],
+      "@react-native-community/datetimepicker",
+      "expo-notifications",
       [
         "expo-ai-kit",
         {

@@ -39,6 +39,8 @@ export interface Database {
           attempt_number: number;
           local_date: string;
           client_talk_id: string | null;
+          feedback: Json | null;
+          timed_transcript: Json | null;
           created_at: string;
         };
         Insert: {
@@ -53,6 +55,8 @@ export interface Database {
           attempt_number?: number;
           local_date: string;
           client_talk_id?: string | null;
+          feedback?: Json | null;
+          timed_transcript?: Json | null;
           created_at?: string;
         };
         Update: {
@@ -66,6 +70,8 @@ export interface Database {
           attempt_number?: number;
           local_date?: string;
           client_talk_id?: string | null;
+          feedback?: Json | null;
+          timed_transcript?: Json | null;
           created_at?: string;
         };
         Relationships: [

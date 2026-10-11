@@ -10,6 +10,7 @@ import * as Linking from 'expo-linking';
 import FeedbackDoneBanner from '@/components/FeedbackDoneBanner';
 import { createSessionFromUrl, supabase } from '@/lib/supabase';
 import { SettingsProvider } from '@/lib/settings';
+import { NotificationSettingsProvider } from '@/lib/notifications';
 
 export { ErrorBoundary } from 'expo-router';
 
@@ -77,19 +78,21 @@ export default function RootLayout() {
 
   return (
     <SettingsProvider>
-      <Stack>
-        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="talks"
-          options={{ title: 'All talks', presentation: 'card' }}
-        />
-        <Stack.Screen
-          name="session/[id]"
-          options={{ title: 'Session', presentation: 'card' }}
-        />
-      </Stack>
-      <FeedbackDoneBanner />
+      <NotificationSettingsProvider>
+        <Stack>
+          <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="talks"
+            options={{ title: 'All talks', presentation: 'card' }}
+          />
+          <Stack.Screen
+            name="session/[id]"
+            options={{ title: 'Session', presentation: 'card' }}
+          />
+        </Stack>
+        <FeedbackDoneBanner />
+      </NotificationSettingsProvider>
     </SettingsProvider>
   );
 }
