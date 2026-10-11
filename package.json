@@ -60,7 +60,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "functions:check": "cd supabase/functions && deno lint && deno fmt --check && deno check talks/index.ts"
+    "functions:check": "cd supabase/functions && deno lint && deno fmt --check && deno check talks/index.ts account/index.ts"
   },
   "private": true
 }

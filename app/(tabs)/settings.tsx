@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Platform,
   StyleSheet,
@@ -12,6 +13,7 @@ import DateTimePicker, {
   type DateTimePickerEvent,
 } from '@react-native-community/datetimepicker';
 import { useRouter } from 'expo-router';
+import { deleteAccount } from '@/lib/account';
 import { supabase } from '@/lib/supabase';
 import {
   MAX_TALKING_MINUTES,
@@ -67,6 +69,38 @@ export default function SettingsScreen() {
   async function signOut() {
     const { error } = await supabase.auth.signOut();
     if (error) Alert.alert('Error', error.message);
+  }
+
+  const [deleting, setDeleting] = useState(false);
+
+  // Two steps on purpose: nothing about this can be undone, so the button only
+  // opens a confirmation that spells out what goes.
+  function confirmDeleteAccount() {
+    Alert.alert(
+      'Delete your account?',
+      'This permanently deletes your account, every talk you have recorded, their transcripts, feedback and recordings. This can’t be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete account', style: 'destructive', onPress: () => void runDelete() },
+      ],
+    );
+  }
+
+  async function runDelete() {
+    setDeleting(true);
+    try {
+      await deleteAccount();
+      // The daily reminder lives on this device, not in the account, so it would
+      // keep nagging a user who no longer exists.
+      await setEnabled(false).catch(() => {});
+      // The auth listener now routes to sign-in; nothing more to do here.
+    } catch (error) {
+      setDeleting(false);
+      Alert.alert(
+        'Could not delete account',
+        error instanceof Error ? error.message : 'Something went wrong. Try again.',
+      );
+    }
   }
 
   async function toggleNotifications(next: boolean) {
@@ -228,8 +262,22 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         )}
 
-        <TouchableOpacity style={styles.signOut} onPress={signOut}>
+        <TouchableOpacity style={styles.signOut} onPress={signOut} disabled={deleting}>
           <Text style={styles.signOutText}>Sign out</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.deleteAccount}
+          onPress={confirmDeleteAccount}
+          disabled={deleting}
+          accessibilityRole="button"
+          accessibilityLabel="Delete account"
+        >
+          {deleting ? (
+            <ActivityIndicator color="#c0392b" />
+          ) : (
+            <Text style={styles.deleteAccountText}>Delete account</Text>
+          )}
         </TouchableOpacity>
       </View>
     </View>
@@ -284,4 +332,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   signOutText: { fontSize: 16, color: '#c0392b' },
+  deleteAccount: {
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  deleteAccountText: { fontSize: 14, color: '#888', textDecorationLine: 'underline' },
 });
