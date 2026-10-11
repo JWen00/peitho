@@ -95,12 +95,34 @@ export function startFeedback(input: FeedbackJobInput): void {
     const startedAt = Date.now();
     set(input.talkId, { status: 'running', startedAt, progress: null });
 
+    // Skills are saved as they finish, so closing the app mid-run keeps what is
+    // done. Saves are chained: concurrent PUTs could land out of order and leave
+    // an older, smaller result on the talk.
+    let saving: Promise<void> = Promise.resolve();
+    const save = (feedback: TalkFeedback | PartialFeedback, what: string) => {
+      saving = saving.then(() =>
+        saveTalkFeedback(input.talkId, feedback).catch((error: unknown) =>
+          console.warn(`[feedback] could not save ${what} to talk:`, error),
+        ),
+      );
+      return saving;
+    };
+    let savedCount = Object.keys(input.resume ?? {}).length;
+
     // scoreTalk is documented not to throw; the catch keeps the queue alive if
     // it ever does, since every later run chains off this one.
     const result = await scoreTalk({
       ...input,
-      onProgress: (progress) =>
-        set(input.talkId, { status: 'running', startedAt, progress }),
+      onProgress: (progress) => {
+        set(input.talkId, { status: 'running', startedAt, progress });
+        if (
+          progress.phase === 'scoring' &&
+          Object.keys(progress.notes).length > savedCount
+        ) {
+          savedCount = Object.keys(progress.notes).length;
+          void save({ partial: true, skills: progress.notes }, 'progress');
+        }
+      },
     }).catch(() => ({
       status: 'error' as const,
       message: 'Could not generate feedback.',
@@ -108,9 +130,7 @@ export function startFeedback(input: FeedbackJobInput): void {
 
     if (result.status === 'partial') {
       set(input.talkId, result);
-      await saveTalkFeedback(input.talkId, result.partial).catch((error: unknown) =>
-        console.warn('[feedback] could not save partial to talk:', error),
-      );
+      await save(result.partial, 'partial result');
       finished({ talkId: input.talkId, topic: input.topic, outcome: 'partial' });
       return;
     }
@@ -128,9 +148,7 @@ export function startFeedback(input: FeedbackJobInput): void {
     // Saved here, not by the screen, so it lands even if nobody is watching.
     // Best-effort: the result is already in memory for this session, and a
     // failed save only means scoring again after the app restarts.
-    await saveTalkFeedback(input.talkId, result.feedback).catch((error: unknown) =>
-      console.warn('[feedback] could not save to talk:', error),
-    );
+    await save(result.feedback, 'result');
     // After the save, so tapping through reloads the talk with its feedback on it.
     finished({ talkId: input.talkId, topic: input.topic, outcome: 'ready' });
   });

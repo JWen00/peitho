@@ -46,6 +46,15 @@ export const DEFAULT_FEEDBACK_MODEL: FeedbackModel = 'qwen3-1.7b';
 
 const FEEDBACK_MODEL_KEY = 'feedback_model';
 
+/**
+ * Whether feedback starts by itself once a talk is saved, so it is often ready by
+ * the time the talk is opened. Off by default: it runs the on-device model (and
+ * downloads it on first use) without the user asking.
+ */
+export const DEFAULT_AUTO_FEEDBACK = false;
+
+const AUTO_FEEDBACK_KEY = 'auto_feedback';
+
 function parseModel(value: string | null): FeedbackModel {
   return value === 'native' || value === 'qwen3-1.7b' ? value : DEFAULT_FEEDBACK_MODEL;
 }
@@ -62,6 +71,8 @@ interface SettingsValue {
   setTranscriptionSource: (source: TranscriptionSource) => void;
   feedbackModel: FeedbackModel;
   setFeedbackModel: (model: FeedbackModel) => void;
+  autoFeedback: boolean;
+  setAutoFeedback: (enabled: boolean) => void;
 }
 
 const SettingsContext = createContext<SettingsValue | null>(null);
@@ -72,6 +83,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     useState<TranscriptionSource>(DEFAULT_TRANSCRIPTION_SOURCE);
   const [feedbackModel, setFeedbackModelState] =
     useState<FeedbackModel>(DEFAULT_FEEDBACK_MODEL);
+  const [autoFeedback, setAutoFeedbackState] = useState(DEFAULT_AUTO_FEEDBACK);
 
   useEffect(() => {
     readValue(TALKING_MINUTES_KEY)
@@ -87,6 +99,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     readValue(FEEDBACK_MODEL_KEY)
       .then((stored) => {
         if (stored !== null) setFeedbackModelState(parseModel(stored));
+      })
+      .catch(() => {});
+    readValue(AUTO_FEEDBACK_KEY)
+      .then((stored) => {
+        if (stored !== null) setAutoFeedbackState(stored === 'true');
       })
       .catch(() => {});
   }, []);
@@ -107,6 +124,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     void writeValue(FEEDBACK_MODEL_KEY, model).catch(() => {});
   }, []);
 
+  const setAutoFeedback = useCallback((enabled: boolean) => {
+    setAutoFeedbackState(enabled);
+    void writeValue(AUTO_FEEDBACK_KEY, String(enabled)).catch(() => {});
+  }, []);
+
   return createElement(
     SettingsContext.Provider,
     {
@@ -117,6 +139,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         setTranscriptionSource,
         feedbackModel,
         setFeedbackModel,
+        autoFeedback,
+        setAutoFeedback,
       },
     },
     children,

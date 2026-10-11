@@ -11,7 +11,7 @@ const BAND_COLOR: Record<Band, string> = {
 };
 
 /** Five dots, filled up to `score` (out of 5). */
-function ScoreDots({ score }: { score: number }) {
+export function ScoreDots({ score }: { score: number }) {
   return (
     <View style={styles.dots}>
       {[1, 2, 3, 4, 5].map((n) => (

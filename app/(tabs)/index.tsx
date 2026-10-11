@@ -11,6 +11,7 @@ import {
 import PlanningTimer from '@/components/PlanningTimer';
 import RecordingReview from '@/components/RecordingReview';
 import VoiceRecorder, { type VoiceRecording } from '@/components/VoiceRecorder';
+import { startFeedback } from '@/lib/feedbackJobs';
 import { discardRecording, newTalkId, saveSession } from '@/lib/sessions';
 import { useSettings } from '@/lib/settings';
 import { getTodaysTopic } from '@/lib/topics';
@@ -20,7 +21,8 @@ type SaveState =
 
 export default function PracticeScreen() {
   const router = useRouter();
-  const { talkingMinutes } = useSettings();
+  const { talkingMinutes, autoFeedback, transcriptionSource, feedbackModel } =
+    useSettings();
   // Stable for the whole local day, so a retry gets the same prompt.
   const [topic] = useState(getTodaysTopic);
   // The core loop's plan step gates the recorder: the speaker plans, then the
@@ -76,6 +78,19 @@ export default function PracticeScreen() {
       setClientTalkId(null);
       setSave({ status: 'idle' });
       setStage('planning');
+      // Opted-in users get feedback started for them; it runs in the background
+      // (and queues behind any other run), so saving and opening the talk are
+      // not held up. A talk with no transcript has nothing to score.
+      if (autoFeedback && recording.transcript) {
+        startFeedback({
+          talkId: saved.id,
+          topic: topic.text,
+          transcript: recording.transcript,
+          durationSeconds: recording.durationSeconds,
+          source: transcriptionSource,
+          model: feedbackModel,
+        });
+      }
       // Open the saved talk so the user reviews it and reads the transcript.
       router.push(`/session/${saved.id}`);
     } catch (error) {
@@ -85,7 +100,15 @@ export default function PracticeScreen() {
           error instanceof Error ? error.message : 'Could not save that recording.',
       });
     }
-  }, [recording, clientTalkId, topic, router]);
+  }, [
+    recording,
+    clientTalkId,
+    topic,
+    router,
+    autoFeedback,
+    transcriptionSource,
+    feedbackModel,
+  ]);
 
   const handleDiscard = useCallback(() => {
     if (!recording) return;

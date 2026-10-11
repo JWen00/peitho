@@ -350,7 +350,14 @@ export type FeedbackProgress =
    * Generating prompt `step` (0-based) of the run's prompts, named by `labels`;
    * `completed` lists those already done (including ones kept from an earlier run).
    */
-  | { phase: 'scoring'; step: number; labels: string[]; completed: string[] };
+  | {
+      phase: 'scoring';
+      step: number;
+      labels: string[];
+      completed: string[];
+      /** Everything scored so far, so a UI can show results as they land. */
+      notes: Partial<Record<SkillKey, SkillNote>>;
+    };
 
 type OnProgress = (progress: FeedbackProgress) => void;
 
@@ -369,7 +376,13 @@ async function scoreTwoPass(
   metrics: TalkMetrics,
   onProgress?: OnProgress,
 ): Promise<TalkFeedback> {
-  onProgress?.({ phase: 'scoring', step: 0, labels: TWO_PASS_LABELS, completed: [] });
+  onProgress?.({
+    phase: 'scoring',
+    step: 0,
+    labels: TWO_PASS_LABELS,
+    completed: [],
+    notes: {},
+  });
   const contentMessages: LLMMessage[] = [
     { role: 'user', content: buildContentMessage(topic, transcript) },
   ];
@@ -387,6 +400,7 @@ async function scoreTwoPass(
     step: 1,
     labels: TWO_PASS_LABELS,
     completed: ['Content'],
+    notes: {},
   });
   const languageMessages: LLMMessage[] = [
     { role: 'user', content: buildLanguageMessage(transcript, metrics) },
@@ -409,6 +423,113 @@ async function scoreTwoPass(
       0,
       3,
     ),
+  };
+}
+
+// --- Measured skills: scored in code, not by the model ----------------------
+//
+// Vocabulary (vague words per 100 words) and flow (fillers per 100 words and the
+// longest pause) are counts, not judgement calls. Computing them is instant,
+// repeatable, and removes up to two prompts from the slow model's run. Flow needs
+// real pause timings, which only ElevenLabs transcription provides; without them
+// it stays with the model rather than scoring from a fake "no pauses" signal.
+
+/** Below this many words the per-100-word rates are too noisy to score from. */
+const MIN_WORDS_TO_MEASURE = 20;
+
+/** Sharper words to offer for each vague one. */
+const REPLACEMENTS: Record<string, string> = {
+  good: 'effective or rewarding',
+  bad: 'harmful or frustrating',
+  nice: 'warm or thoughtful',
+  interesting: 'surprising or thought-provoking',
+  great: 'impressive or outstanding',
+  hard: 'demanding or exhausting',
+  important: 'essential or decisive',
+  small: 'tiny or modest',
+  different: 'distinct or unconventional',
+  weird: 'unusual or eccentric',
+  cool: 'impressive or clever',
+  beautiful: 'striking or elegant',
+  ugly: 'jarring or crude',
+  fast: 'rapid or brisk',
+  slow: 'gradual or sluggish',
+  busy: 'packed or hectic',
+  boring: 'tedious or flat',
+  smart: 'sharp or resourceful',
+  strong: 'powerful or resilient',
+  weak: 'fragile or feeble',
+};
+
+/** Maps a per-100-words rate to 1-5 using ascending upper bounds for 5, 4, 3, 2. */
+function scoreByRate(rate: number, bounds: [number, number, number, number]): number {
+  const index = bounds.findIndex((limit) => rate <= limit);
+  return index === -1 ? 1 : 5 - index;
+}
+
+function vocabularyNote(metrics: TalkMetrics): SkillNote {
+  const total = metrics.vagueWords.reduce((sum, v) => sum + v.count, 0);
+  const rate = (total / Math.max(metrics.wordCount, 1)) * 100;
+  const score = scoreByRate(rate, [0.5, 1.5, 3, 5]);
+  const top = metrics.vagueWords[0];
+  if (!top) {
+    return {
+      score,
+      strength: 'Your word choice stayed specific, with no vague catch-all adjectives.',
+      suggestion:
+        'Keep reaching for concrete detail: a number, a name or an image makes a point land.',
+    };
+  }
+  const instead = REPLACEMENTS[top.word] ?? 'something more specific';
+  return {
+    score,
+    strength:
+      score >= 4
+        ? 'Mostly specific word choice, with only the odd vague word.'
+        : score === 3
+          ? 'You had concrete moments to build on.'
+          : 'You had plenty to say on the topic.',
+    suggestion: `You said "${top.word}" ${top.count} time${top.count === 1 ? '' : 's'}. Try ${instead}, or say exactly what made it ${top.word}.`,
+  };
+}
+
+function flowNote(metrics: TalkMetrics): SkillNote {
+  const rate = (metrics.fillerCount / Math.max(metrics.wordCount, 1)) * 100;
+  const pause = metrics.maxPauseSeconds ?? 0;
+  const pauseScore = pause < 2 ? 5 : pause < 3 ? 4 : pause < 4.5 ? 3 : pause < 6 ? 2 : 1;
+  const score = Math.min(scoreByRate(rate, [1, 2.5, 4, 6]), pauseScore);
+
+  const fillers =
+    metrics.fillerCount === 0
+      ? null
+      : `${metrics.fillerCount} filler word${metrics.fillerCount === 1 ? '' : 's'}`;
+  const longPause = pause >= 3 ? `a ${pause}s pause` : null;
+  const problems = [fillers, longPause].filter(Boolean).join(' and ');
+
+  return {
+    score,
+    strength:
+      metrics.fillerCount === 0
+        ? 'You spoke without filler words.'
+        : score >= 3
+          ? 'Your pace carried the talk along.'
+          : 'You kept going through the rough patches.',
+    suggestion: problems
+      ? `You had ${problems}. Swap fillers for a short silent pause, and plan your next point during it.`
+      : 'Keep leaning on short, deliberate pauses.',
+  };
+}
+
+/**
+ * The skills that can be scored from the numbers alone. Flow is included only
+ * when pause timings exist (ElevenLabs transcription).
+ */
+function measuredNotes(metrics: TalkMetrics): Partial<Record<SkillKey, SkillNote>> {
+  // Rates over a handful of words mean nothing; leave a very short talk to the model.
+  if (metrics.wordCount < MIN_WORDS_TO_MEASURE) return {};
+  return {
+    vocabulary: vocabularyNote(metrics),
+    ...(metrics.maxPauseSeconds != null ? { flow: flowNote(metrics) } : {}),
   };
 }
 
@@ -447,41 +568,57 @@ async function scorePerSkill(
   resume: PartialFeedback['skills'],
   onProgress?: OnProgress,
 ): Promise<TalkFeedback | PartialFeedback> {
-  const notes: Partial<Record<SkillKey, SkillNote>> = { ...resume };
+  // Measured skills first: instant, and they show up before the model starts.
+  // Anything kept from an earlier run wins over a recomputation.
+  const notes: Partial<Record<SkillKey, SkillNote>> = {
+    ...measuredNotes(metrics),
+    ...resume,
+  };
   const completed = () => SKILLS.filter((s) => notes[s.key]).map((s) => s.label);
   let stopped: unknown = null;
 
-  for (const [index, skill] of SKILLS.entries()) {
-    if (notes[skill.key]) continue;
-    onProgress?.({
-      phase: 'scoring',
-      step: index,
-      labels: SKILL_LABELS,
-      completed: completed(),
-    });
-    const messages: LLMMessage[] = [
-      { role: 'user', content: buildSkillMessage(skill, topic, transcript, metrics) },
-    ];
-    try {
-      const { object } = await ai.generateObject<SkillNote>(messages, SKILL_SCHEMA, {
-        systemPrompt: SKILL_SYSTEM,
-        maxRepairAttempts: 2,
+  // Two passes: a skill whose answer could not be read gets one more try after
+  // the others, since a small model's failures are often one-off.
+  for (let pass = 0; pass < 2 && stopped === null; pass += 1) {
+    const before = Object.keys(notes).length;
+    for (const [index, skill] of SKILLS.entries()) {
+      if (notes[skill.key]) continue;
+      onProgress?.({
+        phase: 'scoring',
+        step: index,
+        labels: SKILL_LABELS,
+        completed: completed(),
+        notes: { ...notes },
       });
-      console.log(`[feedback] ${skill.key} = ${object.score}`);
-      notes[skill.key] = object;
-    } catch (error) {
-      const code = (error as { code?: unknown }).code;
-      console.warn(`[feedback] ${skill.key} failed:`, code, error);
-      stopped = error;
-      // An unreadable answer is specific to this skill; anything else (out of
-      // memory, model gone) will hit the next one too, so stop.
-      if (code !== 'INFERENCE_FAILED') break;
+      const messages: LLMMessage[] = [
+        { role: 'user', content: buildSkillMessage(skill, topic, transcript, metrics) },
+      ];
+      try {
+        const { object } = await ai.generateObject<SkillNote>(messages, SKILL_SCHEMA, {
+          systemPrompt: SKILL_SYSTEM,
+          maxRepairAttempts: 2,
+        });
+        console.log(`[feedback] ${skill.key} = ${object.score}`);
+        notes[skill.key] = object;
+      } catch (error) {
+        const code = (error as { code?: unknown }).code;
+        console.warn(`[feedback] ${skill.key} failed (pass ${pass + 1}):`, code, error);
+        // An unreadable answer is specific to this skill, so move on and retry it
+        // later; anything else (out of memory, model gone) will hit the next
+        // skill too, so stop.
+        if (code !== 'INFERENCE_FAILED') {
+          stopped = error;
+          break;
+        }
+      }
     }
+    // Nothing missing, or the pass made no progress: another would not either.
+    if (SKILLS.every((s) => notes[s.key]) || Object.keys(notes).length === before) break;
   }
 
   if (SKILLS.every((s) => notes[s.key]))
     return assembleFeedback(notes as Record<SkillKey, SkillNote>);
-  // Nothing scored at all: that is a plain failure, not a partial result.
+  // Measured skills count as scored, so this only throws if even those are absent.
   if (Object.keys(notes).length === 0) throw stopped;
   return { partial: true, skills: notes };
 }
