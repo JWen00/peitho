@@ -43,7 +43,7 @@ export function newTalkId(): string {
 }
 
 /** Pulls the API's error message out of a non-2xx response from the function. */
-async function messageFor(error: unknown): Promise<string> {
+export async function messageFor(error: unknown): Promise<string> {
   const context = (error as { context?: Response }).context;
   if (context && typeof context.json === 'function') {
     try {
